@@ -4,68 +4,66 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/appconfig"
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var cfgFile string
-
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
-	Use:   "vltest",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+type dependencies struct {
+	newEngine func(context.Context, string) (container.Engine, error)
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
-		os.Exit(1)
+func defaultDependencies() dependencies {
+	return dependencies{
+		newEngine: func(ctx context.Context, preference string) (container.Engine, error) {
+			return container.NewCLIEngine(ctx, preference)
+		},
 	}
 }
 
-func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is <UserConfigDir>/vltest.json)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+func Execute() error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	return newRootCommand(defaultDependencies()).ExecuteContext(ctx)
 }
 
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home, err := os.UserConfigDir()
-		wd, _ := os.Getwd()
-		cobra.CheckErr(err)
+func newRootCommand(deps dependencies) *cobra.Command {
+	configuration := viper.New()
+	appconfig.Configure(configuration)
 
-		viper.AddConfigPath(home)
-		viper.AddConfigPath(wd)
-		viper.SetConfigType("json")
-		viper.SetConfigName("vltest")
+	var configFile string
+	rootCommand := &cobra.Command{
+		Use:          "vltest",
+		Short:        "Run containerized compatibility tests for VoxeLibre",
+		SilenceUsage: true,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := appconfig.LoadFile(configuration, configFile); err != nil {
+				return err
+			}
+			if used := configuration.ConfigFileUsed(); used != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Using config file:", used)
+			}
+			return nil
+		},
 	}
 
-	viper.AutomaticEnv()
-
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+	rootCommand.PersistentFlags().StringVar(
+		&configFile,
+		"config",
+		"",
+		"config file (default: vltest.json in the working or user config directory)",
+	)
+	if err := appconfig.AddPersistentFlags(configuration, rootCommand.PersistentFlags()); err != nil {
+		panic(err)
 	}
+
+	rootCommand.AddCommand(newServerCommand(configuration, deps))
+	return rootCommand
 }

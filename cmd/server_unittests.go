@@ -6,19 +6,40 @@ package cmd
 import (
 	"fmt"
 
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/appconfig"
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/servertest"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
-// unittestsCmd represents the unittests command
-var unittestsCmd = &cobra.Command{
-	Use:   "unittests",
-	Short: "Assert server doesn't fail unit tests",
-	Long:  ``,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("unittests called")
-	},
-}
+func newServerUnitTestsCommand(configuration *viper.Viper, deps dependencies) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unittests",
+		Short: "Assert VoxeLibre starts on every supported Luanti server",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			settings, err := appconfig.Read(configuration)
+			if err != nil {
+				return fmt.Errorf("validate configuration: %w", err)
+			}
+			pullPolicy, err := container.ParsePullPolicy(settings.ContainerPull)
+			if err != nil {
+				return fmt.Errorf("validate pull policy: %w", err)
+			}
+			engine, err := deps.newEngine(cmd.Context(), settings.ContainerEngine)
+			if err != nil {
+				return err
+			}
 
-func init() {
-	serverCmd.AddCommand(unittestsCmd)
+			suite := servertest.NewSuite(
+				engine,
+				settings.ContainerImage,
+				pullPolicy,
+				settings.VoxeLibreCloneDir,
+				cmd.OutOrStdout(),
+			)
+			return suite.Run(cmd.Context())
+		},
+	}
 }

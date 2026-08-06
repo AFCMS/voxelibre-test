@@ -3,8 +3,14 @@
 
 package main
 
-import "git.minetest.land/VoxeLibre/voxelibre-test/cmd"
+import (
+	"os"
+
+	"git.minetest.land/VoxeLibre/voxelibre-test/cmd"
+)
 
 func main() {
-	cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
