@@ -1,0 +1,110 @@
+---
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "*"
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      use_cache:
+        description: "Use build cache"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  vltest:
+    name: VL Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.26
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Build VL Test
+        run: go build -o vltest .
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Validate formatting
+        run: go fmt ./...
+
+  vltest-lint:
+    name: VL Test Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.26
+
+      - name: GolangCI Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  vltest-docker:
+    name: VL Test Docker
+    needs:
+      - vltest
+      - vltest-lint
+    uses: docker/github-builder/.github/workflows/bake.yml@v1
+    permissions:
+      contents: read
+      packages: write
+    # Probably non-functional due to https://github.com/docker/github-builder/issues/191
+    if: false
+    with:
+      output: image
+      push: false
+      # push: ${{ github.event_name != 'pull_request' }}
+      target: vltest
+      platforms: linux/amd64
+      meta-images: git.minetest.land/${{ github.repository }}
+      meta-tags: |
+        type=ref,event=branch
+        type=ref,event=pr
+        type=semver,pattern={{version}}
+        type=semver,pattern={{major}}.{{minor}}
+        type=semver,pattern={{major}}
+      set-meta-annotations: true
+      set-meta-labels: true
+      annotations: |
+        org.opencontainers.image.title=VoxeLibre Test
+        org.opencontainers.image.description=VoxeLibre testing CLI
+        org.opencontainers.image.authors=AFCMS <afcm.contact@gmail.com>
+        org.opencontainers.image.licenses=LGPL-3.0-or-later
+        org.opencontainers.image.source=https://git.minetest.land/VoxeLibre/voxelibre-test
+      labels: |
+        org.opencontainers.image.title=VoxeLibre Test
+        org.opencontainers.image.description=VoxeLibre testing CLI
+        org.opencontainers.image.authors=AFCMS <afcm.contact@gmail.com>
+        org.opencontainers.image.licenses=LGPL-3.0-or-later
+        org.opencontainers.image.source=https://git.minetest.land/VoxeLibre/voxelibre-test
+      sbom: false
+      sign: false
+      cache: true
+      cache-mode: max
+      distribute: true
+      fail-fast: false
+      registry-auths: |
+        - registry: git.minetest.land
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
