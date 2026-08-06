@@ -17,12 +17,34 @@ import (
 )
 
 type dependencies struct {
-	newEngine func(context.Context, string) (container.Engine, error)
+	newEngine func(context.Context, string) (container.Runtime, error)
+}
+
+var (
+	configFile          string
+	configuration       = viper.New()
+	commandDependencies = defaultDependencies()
+)
+
+// rootCmd represents the base command when called without any subcommands.
+var rootCmd = &cobra.Command{
+	Use:          "vltest",
+	Short:        "Run containerized compatibility tests for VoxeLibre",
+	SilenceUsage: true,
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		if err := appconfig.LoadFile(configuration, configFile); err != nil {
+			return err
+		}
+		if used := configuration.ConfigFileUsed(); used != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Using config file:", used)
+		}
+		return nil
+	},
 }
 
 func defaultDependencies() dependencies {
 	return dependencies{
-		newEngine: func(ctx context.Context, preference string) (container.Engine, error) {
+		newEngine: func(ctx context.Context, preference string) (container.Runtime, error) {
 			return container.NewCLIEngine(ctx, preference)
 		},
 	}
@@ -31,39 +53,19 @@ func defaultDependencies() dependencies {
 func Execute() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	return newRootCommand(defaultDependencies()).ExecuteContext(ctx)
+	return rootCmd.ExecuteContext(ctx)
 }
 
-func newRootCommand(deps dependencies) *cobra.Command {
-	configuration := viper.New()
+func init() {
 	appconfig.Configure(configuration)
 
-	var configFile string
-	rootCommand := &cobra.Command{
-		Use:          "vltest",
-		Short:        "Run containerized compatibility tests for VoxeLibre",
-		SilenceUsage: true,
-		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if err := appconfig.LoadFile(configuration, configFile); err != nil {
-				return err
-			}
-			if used := configuration.ConfigFileUsed(); used != "" {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Using config file:", used)
-			}
-			return nil
-		},
-	}
-
-	rootCommand.PersistentFlags().StringVar(
+	rootCmd.PersistentFlags().StringVar(
 		&configFile,
 		"config",
 		"",
 		"config file (default: vltest.json in the working or user config directory)",
 	)
-	if err := appconfig.AddPersistentFlags(configuration, rootCommand.PersistentFlags()); err != nil {
+	if err := appconfig.AddPersistentFlags(configuration, rootCmd.PersistentFlags()); err != nil {
 		panic(err)
 	}
-
-	rootCommand.AddCommand(newServerCommand(configuration, deps))
-	return rootCommand
 }

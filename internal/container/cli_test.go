@@ -150,6 +150,8 @@ func TestCLILifecycleCommands(t *testing.T) {
 		switch arguments[0] {
 		case "run":
 			_, _ = io.WriteString(stdout, "container-id\n")
+		case "create":
+			_, _ = io.WriteString(stdout, "created-id\n")
 		case "logs":
 			_, _ = io.WriteString(stdout, "ready\n")
 		case "inspect":
@@ -167,6 +169,13 @@ func TestCLILifecycleCommands(t *testing.T) {
 	}
 	if logs, err := engine.ReadLogs(context.Background(), id); err != nil || string(logs) != "ready\n" {
 		t.Fatalf("ReadLogs() = %q, %v", logs, err)
+	}
+	createdID, err := engine.Create(context.Background(), "image")
+	if err != nil || createdID != "created-id" {
+		t.Fatalf("Create() = %q, %v", createdID, err)
+	}
+	if err := engine.CopyFrom(context.Background(), createdID, "/work/dist/build", "/tmp/build"); err != nil {
+		t.Fatal(err)
 	}
 	if running, err := engine.IsRunning(context.Background(), id); err != nil || !running {
 		t.Fatalf("IsRunning() = %t, %v", running, err)
@@ -187,5 +196,51 @@ func TestCLILifecycleCommands(t *testing.T) {
 	}
 	if !reflect.DeepEqual(calls[len(calls)-2:], wantLastTwo) {
 		t.Fatalf("cleanup calls: got %#v, want %#v", calls[len(calls)-2:], wantLastTwo)
+	}
+	wantCreateAndCopy := [][]string{
+		{"create", "--pull=never", "image"},
+		{"cp", "created-id:/work/dist/build", "/tmp/build"},
+	}
+	if !reflect.DeepEqual(calls[2:4], wantCreateAndCopy) {
+		t.Fatalf("extraction calls: got %#v, want %#v", calls[2:4], wantCreateAndCopy)
+	}
+}
+
+func TestBuildExtractionCommandsUseSelectedCLI(t *testing.T) {
+	for _, engineName := range []string{"docker", "podman"} {
+		t.Run(engineName, func(t *testing.T) {
+			var executables []string
+			var calls [][]string
+			runner := runnerFunc(func(_ context.Context, executable string, arguments []string, stdout, _ io.Writer) error {
+				executables = append(executables, executable)
+				calls = append(calls, append([]string(nil), arguments...))
+				if arguments[0] == "create" {
+					_, _ = io.WriteString(stdout, "container-id\n")
+				}
+				return nil
+			})
+			engine := &CLIEngine{name: engineName, executable: "/usr/bin/" + engineName, runner: runner}
+
+			id, err := engine.Create(context.Background(), "image:local")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := engine.CopyFrom(context.Background(), id, "/work/dist/build", "/tmp/build"); err != nil {
+				t.Fatal(err)
+			}
+
+			wantCalls := [][]string{
+				{"create", "--pull=never", "image:local"},
+				{"cp", "container-id:/work/dist/build", "/tmp/build"},
+			}
+			if !reflect.DeepEqual(calls, wantCalls) {
+				t.Fatalf("calls = %#v, want %#v", calls, wantCalls)
+			}
+			for _, executable := range executables {
+				if executable != "/usr/bin/"+engineName {
+					t.Fatalf("executable = %q, want selected %s CLI", executable, engineName)
+				}
+			}
+		})
 	}
 }

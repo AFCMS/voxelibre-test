@@ -17,18 +17,20 @@ import (
 )
 
 type readyEngine struct {
-	mu          sync.Mutex
-	ensureImage string
-	policy      container.PullPolicy
-	starts      int
-	stops       int
-	removes     int
+	mu           sync.Mutex
+	ensureImages []string
+	createImages []string
+	policy       container.PullPolicy
+	starts       int
+	copies       int
+	stops        int
+	removes      int
 }
 
 func (engine *readyEngine) EnsureImage(_ context.Context, image string, policy container.PullPolicy) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	engine.ensureImage = image
+	engine.ensureImages = append(engine.ensureImages, image)
 	engine.policy = policy
 	return nil
 }
@@ -38,6 +40,20 @@ func (engine *readyEngine) Start(context.Context, container.ContainerSpec) (stri
 	defer engine.mu.Unlock()
 	engine.starts++
 	return "container", nil
+}
+
+func (engine *readyEngine) Create(_ context.Context, image string) (string, error) {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.createImages = append(engine.createImages, image)
+	return "container", nil
+}
+
+func (engine *readyEngine) CopyFrom(_ context.Context, _, _, destinationPath string) error {
+	engine.mu.Lock()
+	engine.copies++
+	engine.mu.Unlock()
+	return os.MkdirAll(filepath.Join(destinationPath, "bin"), 0o755)
 }
 
 func (*readyEngine) ReadLogs(context.Context, string) ([]byte, error) {
@@ -83,32 +99,40 @@ func TestRootCommandWiresFlagsThroughViper(t *testing.T) {
 
 	engine := &readyEngine{}
 	selectedEngine := ""
-	root := newRootCommand(dependencies{
-		newEngine: func(_ context.Context, preference string) (container.Engine, error) {
+	previousDependencies := commandDependencies
+	commandDependencies = dependencies{
+		newEngine: func(_ context.Context, preference string) (container.Runtime, error) {
 			selectedEngine = preference
 			return engine, nil
 		},
+	}
+	t.Cleanup(func() {
+		commandDependencies = previousDependencies
+		rootCmd.SetArgs(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
 	})
+
 	var output bytes.Buffer
-	root.SetOut(&output)
-	root.SetErr(&output)
-	root.SetArgs([]string{
+	rootCmd.SetOut(&output)
+	rootCmd.SetErr(&output)
+	rootCmd.SetArgs([]string{
 		"--config", configPath,
 		"--voxelibre-dir", cloneDirectory,
 		"--container-engine", "podman",
-		"--image", "local-image:test",
+		"--server-image", "local-server:test",
 		"--pull-policy", "never",
 		"server", "unittests",
 	})
 
-	if err := root.Execute(); err != nil {
+	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if selectedEngine != "podman" {
 		t.Fatalf("selected engine = %q, want podman", selectedEngine)
 	}
-	if engine.ensureImage != "local-image:test" || engine.policy != container.PullNever {
-		t.Fatalf("image setup = %q/%q", engine.ensureImage, engine.policy)
+	if len(engine.ensureImages) != 1 || engine.ensureImages[0] != "local-server:test" || engine.policy != container.PullNever {
+		t.Fatalf("image setup = %#v/%q", engine.ensureImages, engine.policy)
 	}
 	if engine.starts != 3 || engine.stops != 3 || engine.removes != 3 {
 		t.Fatalf("lifecycle counts: starts=%d stops=%d removes=%d", engine.starts, engine.stops, engine.removes)
@@ -119,9 +143,91 @@ func TestRootCommandWiresFlagsThroughViper(t *testing.T) {
 }
 
 func TestServerUnitTestsRejectsArguments(t *testing.T) {
-	root := newRootCommand(defaultDependencies())
-	root.SetArgs([]string{"server", "unittests", "unexpected"})
-	if err := root.Execute(); err == nil {
+	rootCmd.SetArgs([]string{"server", "unittests", "unexpected"})
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+	if err := rootCmd.ExecuteContext(context.Background()); err == nil {
 		t.Fatal("expected positional argument error")
+	}
+}
+
+func TestExtractBuildsRegistrationAndFlags(t *testing.T) {
+	if extractBuildsCmd.Parent() != rootCmd {
+		t.Fatal("extract-builds command is not registered on rootCmd")
+	}
+	for _, flagName := range []string{"version", "all", "kind", "output-dir"} {
+		if extractBuildsCmd.Flags().Lookup(flagName) == nil {
+			t.Fatalf("extract-builds --%s flag is not registered", flagName)
+		}
+	}
+	if flag := extractBuildsCmd.Flags().Lookup("toggle"); flag != nil {
+		t.Fatal("placeholder --toggle flag is still registered")
+	}
+	if flag := extractBuildsCmd.Flags().Lookup("kind"); flag.DefValue != "all" {
+		t.Fatalf("kind default = %q, want all", flag.DefValue)
+	}
+	if flag := extractBuildsCmd.Flags().Lookup("output-dir"); flag.DefValue != "./builds" {
+		t.Fatalf("output-dir default = %q, want ./builds", flag.DefValue)
+	}
+	for _, flagName := range []string{"server-image", "client-image"} {
+		if rootCmd.PersistentFlags().Lookup(flagName) == nil {
+			t.Fatalf("root --%s flag is not registered", flagName)
+		}
+	}
+	if rootCmd.PersistentFlags().Lookup("image") != nil {
+		t.Fatal("legacy root --image flag is still registered")
+	}
+}
+
+func TestExtractBuildsCommandExportsWithoutVoxeLibreClone(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	configPath := filepath.Join(temporaryDirectory, "empty.json")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outputDir := filepath.Join(temporaryDirectory, "exports")
+	engine := &readyEngine{}
+	previousDependencies := commandDependencies
+	commandDependencies = dependencies{
+		newEngine: func(context.Context, string) (container.Runtime, error) {
+			return engine, nil
+		},
+	}
+	t.Cleanup(func() {
+		commandDependencies = previousDependencies
+		rootCmd.SetArgs(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+
+	var output bytes.Buffer
+	rootCmd.SetOut(&output)
+	rootCmd.SetErr(&output)
+	rootCmd.SetArgs([]string{
+		"--config", configPath,
+		"--voxelibre-dir", filepath.Join(temporaryDirectory, "does-not-exist"),
+		"--container-engine", "docker",
+		"--client-image", "client-image:local",
+		"--pull-policy", "never",
+		"extract-builds",
+		"--version", "5.16.1",
+		"--kind", "client",
+		"--output-dir", outputDir,
+	})
+
+	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	extractedPath := filepath.Join(outputDir, "luanti-5.16.1-client", "bin")
+	if info, err := os.Stat(extractedPath); err != nil || !info.IsDir() {
+		t.Fatalf("extracted path %q: %v", extractedPath, err)
+	}
+	if len(engine.ensureImages) != 1 || engine.ensureImages[0] != "client-image:local" {
+		t.Fatalf("ensured images = %#v, want only client image", engine.ensureImages)
+	}
+	if len(engine.createImages) != 1 || engine.createImages[0] != "client-image:local" || engine.copies != 1 || engine.removes != 1 {
+		t.Fatalf("extraction lifecycle = create:%d copy:%d remove:%d", len(engine.createImages), engine.copies, engine.removes)
+	}
+	if !strings.Contains(output.String(), "WROTE   "+filepath.Join(outputDir, "luanti-5.16.1-client")) {
+		t.Fatalf("output = %q", output.String())
 	}
 }

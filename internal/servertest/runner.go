@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
@@ -70,10 +71,17 @@ func (suite *Suite) Run(ctx context.Context) error {
 		}
 
 		fmt.Fprintf(suite.output, "START Luanti %s\n", version.Version)
-		err := suite.runVersion(ctx, version)
+		logOutput := startWorkflowLogGroup(suite.output, fmt.Sprintf("Luanti %s server logs", version.Version))
+		err := suite.runVersion(ctx, version, logOutput)
+		logOutput.End()
 		completed++
 		if err != nil {
 			fmt.Fprintf(suite.output, "FAIL  Luanti %s: %v\n", version.Version, err)
+			writeWorkflowError(
+				suite.output,
+				fmt.Sprintf("Luanti %s startup test failed", version.Version),
+				err.Error(),
+			)
 			failures = append(failures, fmt.Errorf("Luanti %s: %w", version.Version, err))
 			continue
 		}
@@ -87,7 +95,11 @@ func (suite *Suite) Run(ctx context.Context) error {
 	return nil
 }
 
-func (suite *Suite) runVersion(ctx context.Context, version luanti.ServerVersion) (resultErr error) {
+func (suite *Suite) runVersion(
+	ctx context.Context,
+	version luanti.ServerVersion,
+	logOutput io.Writer,
+) (resultErr error) {
 	spec := container.ContainerSpec{
 		Image:      suite.image,
 		Entrypoint: version.Entrypoint,
@@ -160,7 +172,7 @@ func (suite *Suite) runVersion(ctx context.Context, version luanti.ServerVersion
 			}
 			return fmt.Errorf("read container logs: %w", logsErr)
 		}
-		if err := writeNewLogs(suite.output, previousLogs, logs); err != nil {
+		if err := writeNewLogs(logOutput, previousLogs, logs); err != nil {
 			return fmt.Errorf("write container logs: %w", err)
 		}
 		previousLogs = append(previousLogs[:0], logs...)
@@ -198,6 +210,62 @@ func (suite *Suite) runVersion(ctx context.Context, version luanti.ServerVersion
 			return ctx.Err()
 		}
 	}
+}
+
+type workflowLogGroup struct {
+	output          io.Writer
+	wroteLogs       bool
+	logsEndWithLine bool
+}
+
+func startWorkflowLogGroup(output io.Writer, title string) *workflowLogGroup {
+	fmt.Fprintf(output, "::group::%s\n", escapeWorkflowData(title))
+	return &workflowLogGroup{output: output}
+}
+
+func (group *workflowLogGroup) Write(data []byte) (int, error) {
+	written, err := group.output.Write(data)
+	if written > 0 {
+		group.wroteLogs = true
+		group.logsEndWithLine = data[written-1] == '\n'
+	}
+	return written, err
+}
+
+func (group *workflowLogGroup) End() {
+	if group.wroteLogs && !group.logsEndWithLine {
+		fmt.Fprintln(group.output)
+	}
+	fmt.Fprintln(group.output, "::endgroup::")
+}
+
+func writeWorkflowError(output io.Writer, title, message string) {
+	fmt.Fprintf(
+		output,
+		"::error title=%s::%s\n",
+		escapeWorkflowProperty(title),
+		escapeWorkflowData(message),
+	)
+}
+
+func escapeWorkflowData(value string) string {
+	replacer := strings.NewReplacer(
+		"%", "%25",
+		"\r", "%0D",
+		"\n", "%0A",
+	)
+	return replacer.Replace(value)
+}
+
+func escapeWorkflowProperty(value string) string {
+	replacer := strings.NewReplacer(
+		"%", "%25",
+		"\r", "%0D",
+		"\n", "%0A",
+		":", "%3A",
+		",", "%2C",
+	)
+	return replacer.Replace(value)
 }
 
 func channelClosed(channel <-chan struct{}) bool {

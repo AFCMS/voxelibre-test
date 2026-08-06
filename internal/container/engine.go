@@ -50,3 +50,15 @@ type Engine interface {
 	Stop(ctx context.Context, containerID string, timeout time.Duration) error
 	Remove(ctx context.Context, containerID string) error
 }
+
+type BuildExporter interface {
+	EnsureImage(ctx context.Context, image string, policy PullPolicy) error
+	Create(ctx context.Context, image string) (string, error)
+	CopyFrom(ctx context.Context, containerID, sourcePath, destinationPath string) error
+	Remove(ctx context.Context, containerID string) error
+}
+
+type Runtime interface {
+	Engine
+	BuildExporter
+}

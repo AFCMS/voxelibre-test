@@ -15,37 +15,53 @@ import (
 )
 
 const (
-	KeyVoxeLibreCloneDir = "voxelibre.clone_dir"
-	KeyContainerEngine   = "container.engine"
-	KeyContainerImage    = "container.image"
-	KeyContainerPull     = "container.pull_policy"
+	KeyVoxeLibreCloneDir    = "voxelibre.clone_dir"
+	KeyContainerEngine      = "container.engine"
+	KeyContainerServerImage = "container.server_image"
+	KeyContainerClientImage = "container.client_image"
+	KeyContainerPull        = "container.pull_policy"
+	KeyExtractOutputDir     = "extract_builds.output_dir"
 
-	DefaultVoxeLibreCloneDir = "./VoxeLibre"
-	DefaultContainerEngine   = "auto"
-	DefaultContainerImage    = "git.minetest.land/voxelibre/voxelibre-test:latest"
-	DefaultContainerPull     = "missing"
+	DefaultVoxeLibreCloneDir    = "./VoxeLibre"
+	DefaultContainerEngine      = "auto"
+	DefaultContainerServerImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-server:latest"
+	DefaultContainerClientImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-client:latest"
+	DefaultContainerPull        = "missing"
+	DefaultExtractOutputDir     = "./builds"
 )
 
 const (
 	FlagVoxeLibreDir  = "voxelibre-dir"
 	FlagEngine        = "container-engine"
-	FlagImage         = "image"
+	FlagServerImage   = "server-image"
+	FlagClientImage   = "client-image"
 	FlagPullPolicy    = "pull-policy"
+	FlagOutputDir     = "output-dir"
 	defaultConfigName = "vltest"
 )
 
-type Settings struct {
+type ContainerSettings struct {
+	Engine     string
+	PullPolicy string
+}
+
+type ExtractBuildsSettings struct {
+	OutputDir string
+}
+
+type ServerSettings struct {
 	VoxeLibreCloneDir string
-	ContainerEngine   string
-	ContainerImage    string
-	ContainerPull     string
+	Container         ContainerSettings
+	Image             string
 }
 
 func Configure(v *viper.Viper) {
 	v.SetDefault(KeyVoxeLibreCloneDir, DefaultVoxeLibreCloneDir)
 	v.SetDefault(KeyContainerEngine, DefaultContainerEngine)
-	v.SetDefault(KeyContainerImage, DefaultContainerImage)
+	v.SetDefault(KeyContainerServerImage, DefaultContainerServerImage)
+	v.SetDefault(KeyContainerClientImage, DefaultContainerClientImage)
 	v.SetDefault(KeyContainerPull, DefaultContainerPull)
+	v.SetDefault(KeyExtractOutputDir, DefaultExtractOutputDir)
 
 	v.SetEnvPrefix("VLTEST")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
@@ -55,14 +71,16 @@ func Configure(v *viper.Viper) {
 func AddPersistentFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 	flags.String(FlagVoxeLibreDir, DefaultVoxeLibreCloneDir, "path to the VoxeLibre clone on the container host")
 	flags.String(FlagEngine, DefaultContainerEngine, "container engine to use (auto, docker, or podman)")
-	flags.String(FlagImage, DefaultContainerImage, "local or remote Luanti test image")
+	flags.String(FlagServerImage, DefaultContainerServerImage, "local or remote Luanti server builds image")
+	flags.String(FlagClientImage, DefaultContainerClientImage, "local or remote Luanti client builds image")
 	flags.String(FlagPullPolicy, DefaultContainerPull, "image pull policy (always, missing, or never)")
 
 	bindings := map[string]string{
-		KeyVoxeLibreCloneDir: FlagVoxeLibreDir,
-		KeyContainerEngine:   FlagEngine,
-		KeyContainerImage:    FlagImage,
-		KeyContainerPull:     FlagPullPolicy,
+		KeyVoxeLibreCloneDir:    FlagVoxeLibreDir,
+		KeyContainerEngine:      FlagEngine,
+		KeyContainerServerImage: FlagServerImage,
+		KeyContainerClientImage: FlagClientImage,
+		KeyContainerPull:        FlagPullPolicy,
 	}
 	for key, flagName := range bindings {
 		if err := v.BindPFlag(key, flags.Lookup(flagName)); err != nil {
@@ -70,6 +88,14 @@ func AddPersistentFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 		}
 	}
 
+	return nil
+}
+
+func AddExtractBuildFlags(v *viper.Viper, flags *pflag.FlagSet) error {
+	flags.String(FlagOutputDir, DefaultExtractOutputDir, "directory in which extracted build directories are created")
+	if err := v.BindPFlag(KeyExtractOutputDir, flags.Lookup(FlagOutputDir)); err != nil {
+		return fmt.Errorf("bind --%s to %s: %w", FlagOutputDir, KeyExtractOutputDir, err)
+	}
 	return nil
 }
 
@@ -107,55 +133,94 @@ func LoadFile(v *viper.Viper, explicitPath string) error {
 	return nil
 }
 
-func Read(v *viper.Viper) (Settings, error) {
-	settings := Settings{
+func ReadServer(v *viper.Viper) (ServerSettings, error) {
+	containerSettings, err := ReadContainer(v)
+	if err != nil {
+		return ServerSettings{}, err
+	}
+	image, err := ReadServerImage(v)
+	if err != nil {
+		return ServerSettings{}, err
+	}
+	settings := ServerSettings{
 		VoxeLibreCloneDir: strings.TrimSpace(v.GetString(KeyVoxeLibreCloneDir)),
-		ContainerEngine:   strings.ToLower(strings.TrimSpace(v.GetString(KeyContainerEngine))),
-		ContainerImage:    strings.TrimSpace(v.GetString(KeyContainerImage)),
-		ContainerPull:     strings.ToLower(strings.TrimSpace(v.GetString(KeyContainerPull))),
+		Container:         containerSettings,
+		Image:             image,
 	}
 
 	if settings.VoxeLibreCloneDir == "" {
-		return Settings{}, errors.New("voxelibre clone directory must not be empty")
+		return ServerSettings{}, errors.New("voxelibre clone directory must not be empty")
 	}
 	absoluteCloneDir, err := filepath.Abs(settings.VoxeLibreCloneDir)
 	if err != nil {
-		return Settings{}, fmt.Errorf("resolve VoxeLibre clone directory: %w", err)
+		return ServerSettings{}, fmt.Errorf("resolve VoxeLibre clone directory: %w", err)
 	}
 	resolvedCloneDir, err := filepath.EvalSymlinks(absoluteCloneDir)
 	if err != nil {
-		return Settings{}, fmt.Errorf("resolve VoxeLibre clone directory %q: %w", absoluteCloneDir, err)
+		return ServerSettings{}, fmt.Errorf("resolve VoxeLibre clone directory %q: %w", absoluteCloneDir, err)
 	}
 	cloneInfo, err := os.Stat(resolvedCloneDir)
 	if err != nil {
-		return Settings{}, fmt.Errorf("inspect VoxeLibre clone directory %q: %w", resolvedCloneDir, err)
+		return ServerSettings{}, fmt.Errorf("inspect VoxeLibre clone directory %q: %w", resolvedCloneDir, err)
 	}
 	if !cloneInfo.IsDir() {
-		return Settings{}, fmt.Errorf("VoxeLibre clone path %q is not a directory", resolvedCloneDir)
+		return ServerSettings{}, fmt.Errorf("VoxeLibre clone path %q is not a directory", resolvedCloneDir)
 	}
 	gameConfigPath := filepath.Join(resolvedCloneDir, "game.conf")
 	gameConfigInfo, err := os.Stat(gameConfigPath)
 	if err != nil {
-		return Settings{}, fmt.Errorf("VoxeLibre clone must contain game.conf: %w", err)
+		return ServerSettings{}, fmt.Errorf("VoxeLibre clone must contain game.conf: %w", err)
 	}
 	if !gameConfigInfo.Mode().IsRegular() {
-		return Settings{}, fmt.Errorf("VoxeLibre game config %q is not a regular file", gameConfigPath)
+		return ServerSettings{}, fmt.Errorf("VoxeLibre game config %q is not a regular file", gameConfigPath)
 	}
 	settings.VoxeLibreCloneDir = resolvedCloneDir
+	return settings, nil
+}
 
-	switch settings.ContainerEngine {
+func ReadContainer(v *viper.Viper) (ContainerSettings, error) {
+	settings := ContainerSettings{
+		Engine:     strings.ToLower(strings.TrimSpace(v.GetString(KeyContainerEngine))),
+		PullPolicy: strings.ToLower(strings.TrimSpace(v.GetString(KeyContainerPull))),
+	}
+
+	switch settings.Engine {
 	case "auto", "docker", "podman":
 	default:
-		return Settings{}, fmt.Errorf("unsupported container engine %q: expected auto, docker, or podman", settings.ContainerEngine)
+		return ContainerSettings{}, fmt.Errorf("unsupported container engine %q: expected auto, docker, or podman", settings.Engine)
 	}
-	if settings.ContainerImage == "" {
-		return Settings{}, errors.New("container image must not be empty")
-	}
-	switch settings.ContainerPull {
+	switch settings.PullPolicy {
 	case "always", "missing", "never":
 	default:
-		return Settings{}, fmt.Errorf("unsupported pull policy %q: expected always, missing, or never", settings.ContainerPull)
+		return ContainerSettings{}, fmt.Errorf("unsupported pull policy %q: expected always, missing, or never", settings.PullPolicy)
 	}
-
 	return settings, nil
+}
+
+func ReadServerImage(v *viper.Viper) (string, error) {
+	return readImage(v, KeyContainerServerImage, "server")
+}
+
+func ReadClientImage(v *viper.Viper) (string, error) {
+	return readImage(v, KeyContainerClientImage, "client")
+}
+
+func readImage(v *viper.Viper, key, kind string) (string, error) {
+	image := strings.TrimSpace(v.GetString(key))
+	if image == "" {
+		return "", fmt.Errorf("container %s image must not be empty", kind)
+	}
+	return image, nil
+}
+
+func ReadExtractBuilds(v *viper.Viper) (ExtractBuildsSettings, error) {
+	outputDir := strings.TrimSpace(v.GetString(KeyExtractOutputDir))
+	if outputDir == "" {
+		return ExtractBuildsSettings{}, errors.New("extract builds output directory must not be empty")
+	}
+	absoluteOutputDir, err := filepath.Abs(outputDir)
+	if err != nil {
+		return ExtractBuildsSettings{}, fmt.Errorf("resolve extract builds output directory: %w", err)
+	}
+	return ExtractBuildsSettings{OutputDir: absoluteOutputDir}, nil
 }

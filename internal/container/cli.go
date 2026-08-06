@@ -120,6 +120,34 @@ func (engine *CLIEngine) Start(ctx context.Context, spec ContainerSpec) (string,
 	return containerID, nil
 }
 
+func (engine *CLIEngine) Create(ctx context.Context, image string) (string, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	arguments := []string{"create", "--pull=never", image}
+	if err := engine.runner.Run(ctx, engine.executable, arguments, &stdout, &stderr); err != nil {
+		return "", commandError(engine.name+" create", err, stderr.String())
+	}
+	containerID := strings.TrimSpace(stdout.String())
+	if containerID == "" {
+		return "", fmt.Errorf("%s create returned an empty container ID", engine.name)
+	}
+	return containerID, nil
+}
+
+func (engine *CLIEngine) CopyFrom(
+	ctx context.Context,
+	containerID string,
+	sourcePath string,
+	destinationPath string,
+) error {
+	var stderr bytes.Buffer
+	source := containerID + ":" + sourcePath
+	if err := engine.runner.Run(ctx, engine.executable, []string{"cp", source, destinationPath}, io.Discard, &stderr); err != nil {
+		return commandError(engine.name+" cp", err, stderr.String())
+	}
+	return nil
+}
+
 func (engine *CLIEngine) runArguments(spec ContainerSpec) []string {
 	arguments := []string{"run", "--detach", "--pull=never"}
 	if engine.name == "podman" && len(spec.BindMounts) > 0 {

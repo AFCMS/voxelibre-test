@@ -5,15 +5,15 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
-func newServerCommand(configuration *viper.Viper, deps dependencies) *cobra.Command {
-	serverCommand := &cobra.Command{
-		Use:   "server",
-		Short: "Test VoxeLibre with supported Luanti servers",
-		Args:  cobra.NoArgs,
-	}
-	serverCommand.AddCommand(newServerUnitTestsCommand(configuration, deps))
-	return serverCommand
+// serverCmd represents the server command.
+var serverCmd = &cobra.Command{
+	Use:   "server",
+	Short: "Test VoxeLibre with supported Luanti servers",
+	Args:  cobra.NoArgs,
+}
+
+func init() {
+	rootCmd.AddCommand(serverCmd)
 }

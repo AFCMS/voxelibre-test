@@ -121,6 +121,18 @@ func TestSuiteStartsEverySupportedVersion(t *testing.T) {
 	if !strings.Contains(output.String(), "PASS  all 3 server startup tests") {
 		t.Fatalf("output = %q", output.String())
 	}
+	if count := strings.Count(output.String(), "::group::Luanti "); count != 3 {
+		t.Fatalf("log group starts = %d, want 3; output = %q", count, output.String())
+	}
+	if count := strings.Count(output.String(), "::endgroup::"); count != 3 {
+		t.Fatalf("log group ends = %d, want 3; output = %q", count, output.String())
+	}
+	for _, version := range suite.versions {
+		group := "::group::Luanti " + version.Version + " server logs\n"
+		if !strings.Contains(output.String(), group) {
+			t.Fatalf("output does not contain %q: %q", group, output.String())
+		}
+	}
 }
 
 func TestSuiteFailsOnEarlyExitWithoutStoppingExitedContainer(t *testing.T) {
@@ -201,7 +213,8 @@ func TestSuiteContinuesAfterVersionFailure(t *testing.T) {
 			return "container-" + spec.Entrypoint, nil
 		},
 	}
-	suite := NewSuite(engine, "image", container.PullMissing, "/clone", io.Discard)
+	output := &lockedBuffer{}
+	suite := NewSuite(engine, "image", container.PullMissing, "/clone", output)
 
 	err := suite.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "1 of 3 completed server startup tests failed") {
@@ -209,6 +222,41 @@ func TestSuiteContinuesAfterVersionFailure(t *testing.T) {
 	}
 	if len(engine.startSpecs) != 3 {
 		t.Fatalf("started %d versions, want 3", len(engine.startSpecs))
+	}
+	annotation := "::error title=Luanti 5.15.2 startup test failed::start container: start failed\n"
+	if count := strings.Count(output.String(), annotation); count != 1 {
+		t.Fatalf("failure annotations = %d, want 1; output = %q", count, output.String())
+	}
+	if count := strings.Count(output.String(), "::endgroup::"); count != 3 {
+		t.Fatalf("log group ends = %d, want 3; output = %q", count, output.String())
+	}
+}
+
+func TestWorkflowLogGroupClosesOnNewLine(t *testing.T) {
+	engine := &fakeEngine{
+		logsHook: func(context.Context, string) ([]byte, error) {
+			return []byte(readinessText), nil
+		},
+	}
+	output := &lockedBuffer{}
+	suite := NewSuite(engine, "image", container.PullMissing, "/clone", output)
+	suite.versions = suite.versions[:1]
+
+	if err := suite.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), readinessText+"\n::endgroup::\n") {
+		t.Fatalf("endgroup marker is not on its own line: %q", output.String())
+	}
+}
+
+func TestWorkflowErrorEscapesCommandValues(t *testing.T) {
+	var output bytes.Buffer
+	writeWorkflowError(&output, "Luanti: 5.16.1, client", "failed 100%\r\nretry")
+
+	want := "::error title=Luanti%3A 5.16.1%2C client::failed 100%25%0D%0Aretry\n"
+	if output.String() != want {
+		t.Fatalf("workflow error = %q, want %q", output.String(), want)
 	}
 }
 

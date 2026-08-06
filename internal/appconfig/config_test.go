@@ -18,8 +18,43 @@ func TestConfigureDefaults(t *testing.T) {
 
 	assertEqual(t, KeyVoxeLibreCloneDir, v.GetString(KeyVoxeLibreCloneDir), DefaultVoxeLibreCloneDir)
 	assertEqual(t, KeyContainerEngine, v.GetString(KeyContainerEngine), DefaultContainerEngine)
-	assertEqual(t, KeyContainerImage, v.GetString(KeyContainerImage), DefaultContainerImage)
+	assertEqual(t, KeyContainerServerImage, v.GetString(KeyContainerServerImage), DefaultContainerServerImage)
+	assertEqual(t, KeyContainerClientImage, v.GetString(KeyContainerClientImage), DefaultContainerClientImage)
 	assertEqual(t, KeyContainerPull, v.GetString(KeyContainerPull), DefaultContainerPull)
+	assertEqual(t, KeyExtractOutputDir, v.GetString(KeyExtractOutputDir), DefaultExtractOutputDir)
+}
+
+func TestExtractBuildsOutputPrecedence(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	configPath := filepath.Join(temporaryDirectory, "custom.json")
+	if err := os.WriteFile(
+		configPath,
+		[]byte(`{"extract_builds":{"output_dir":"config-builds"}}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VLTEST_EXTRACT_BUILDS_OUTPUT_DIR", "environment-builds")
+	v := viper.New()
+	Configure(v)
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	if err := AddExtractBuildFlags(v, flags); err != nil {
+		t.Fatal(err)
+	}
+	if err := flags.Parse([]string{"--output-dir", "flag-builds"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadFile(v, configPath); err != nil {
+		t.Fatal(err)
+	}
+
+	settings, err := ReadExtractBuilds(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(mustWorkingDirectory(t), "flag-builds")
+	assertEqual(t, KeyExtractOutputDir, settings.OutputDir, want)
 }
 
 func TestConfigurationPrecedence(t *testing.T) {
@@ -32,7 +67,8 @@ func TestConfigurationPrecedence(t *testing.T) {
 		"voxelibre": {"clone_dir": "` + configClone + `"},
 		"container": {
 			"engine": "podman",
-			"image": "config-image:latest",
+			"server_image": "config-server:latest",
+			"client_image": "config-client:latest",
 			"pull_policy": "always"
 		}
 	}`
@@ -42,7 +78,8 @@ func TestConfigurationPrecedence(t *testing.T) {
 
 	t.Setenv("VLTEST_VOXELIBRE_CLONE_DIR", environmentClone)
 	t.Setenv("VLTEST_CONTAINER_ENGINE", "docker")
-	t.Setenv("VLTEST_CONTAINER_IMAGE", "environment-image:latest")
+	t.Setenv("VLTEST_CONTAINER_SERVER_IMAGE", "environment-server:latest")
+	t.Setenv("VLTEST_CONTAINER_CLIENT_IMAGE", "environment-client:latest")
 	t.Setenv("VLTEST_CONTAINER_PULL_POLICY", "never")
 
 	v := viper.New()
@@ -51,21 +88,26 @@ func TestConfigurationPrecedence(t *testing.T) {
 	if err := AddPersistentFlags(v, flags); err != nil {
 		t.Fatal(err)
 	}
-	if err := flags.Parse([]string{"--voxelibre-dir", flagClone, "--image", "flag-image:latest"}); err != nil {
+	if err := flags.Parse([]string{"--voxelibre-dir", flagClone, "--server-image", "flag-server:latest"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := LoadFile(v, configPath); err != nil {
 		t.Fatal(err)
 	}
 
-	settings, err := Read(v)
+	settings, err := ReadServer(v)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertEqual(t, KeyVoxeLibreCloneDir, settings.VoxeLibreCloneDir, flagClone)
-	assertEqual(t, KeyContainerImage, settings.ContainerImage, "flag-image:latest")
-	assertEqual(t, KeyContainerEngine, settings.ContainerEngine, "docker")
-	assertEqual(t, KeyContainerPull, settings.ContainerPull, "never")
+	assertEqual(t, KeyContainerServerImage, settings.Image, "flag-server:latest")
+	assertEqual(t, KeyContainerEngine, settings.Container.Engine, "docker")
+	assertEqual(t, KeyContainerPull, settings.Container.PullPolicy, "never")
+	clientImage, err := ReadClientImage(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, KeyContainerClientImage, clientImage, "environment-client:latest")
 }
 
 func TestConfigFileOverridesDefaults(t *testing.T) {
@@ -74,7 +116,12 @@ func TestConfigFileOverridesDefaults(t *testing.T) {
 	configPath := filepath.Join(temporaryDirectory, "vltest.json")
 	configJSON := `{
 		"voxelibre": {"clone_dir": "` + cloneDirectory + `"},
-		"container": {"engine": "podman", "image": "configured:tag", "pull_policy": "always"}
+		"container": {
+			"engine": "podman",
+			"server_image": "configured-server:tag",
+			"client_image": "configured-client:tag",
+			"pull_policy": "always"
+		}
 	}`
 	if err := os.WriteFile(configPath, []byte(configJSON), 0o600); err != nil {
 		t.Fatal(err)
@@ -89,15 +136,20 @@ func TestConfigFileOverridesDefaults(t *testing.T) {
 	if err := LoadFile(v, configPath); err != nil {
 		t.Fatal(err)
 	}
-	settings, err := Read(v)
+	settings, err := ReadServer(v)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	assertEqual(t, KeyVoxeLibreCloneDir, settings.VoxeLibreCloneDir, cloneDirectory)
-	assertEqual(t, KeyContainerEngine, settings.ContainerEngine, "podman")
-	assertEqual(t, KeyContainerImage, settings.ContainerImage, "configured:tag")
-	assertEqual(t, KeyContainerPull, settings.ContainerPull, "always")
+	assertEqual(t, KeyContainerEngine, settings.Container.Engine, "podman")
+	assertEqual(t, KeyContainerServerImage, settings.Image, "configured-server:tag")
+	assertEqual(t, KeyContainerPull, settings.Container.PullPolicy, "always")
+	clientImage, err := ReadClientImage(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, KeyContainerClientImage, clientImage, "configured-client:tag")
 }
 
 func TestReadResolvesRelativeClonePath(t *testing.T) {
@@ -108,7 +160,7 @@ func TestReadResolvesRelativeClonePath(t *testing.T) {
 	v := viper.New()
 	Configure(v)
 	v.Set(KeyVoxeLibreCloneDir, "relative-game")
-	settings, err := Read(v)
+	settings, err := ReadServer(v)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,17 +176,17 @@ func TestReadValidation(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		cloneDir   string
-		engine     string
-		image      string
-		pullPolicy string
+		name        string
+		cloneDir    string
+		engine      string
+		serverImage string
+		pullPolicy  string
 	}{
-		{name: "missing clone", cloneDir: filepath.Join(temporaryDirectory, "missing"), engine: "auto", image: "image", pullPolicy: "missing"},
-		{name: "missing game config", cloneDir: missingGameConfig, engine: "auto", image: "image", pullPolicy: "missing"},
-		{name: "invalid engine", cloneDir: validClone, engine: "containerd", image: "image", pullPolicy: "missing"},
-		{name: "empty image", cloneDir: validClone, engine: "auto", image: " ", pullPolicy: "missing"},
-		{name: "invalid pull policy", cloneDir: validClone, engine: "auto", image: "image", pullPolicy: "sometimes"},
+		{name: "missing clone", cloneDir: filepath.Join(temporaryDirectory, "missing"), engine: "auto", serverImage: "image", pullPolicy: "missing"},
+		{name: "missing game config", cloneDir: missingGameConfig, engine: "auto", serverImage: "image", pullPolicy: "missing"},
+		{name: "invalid engine", cloneDir: validClone, engine: "containerd", serverImage: "image", pullPolicy: "missing"},
+		{name: "empty server image", cloneDir: validClone, engine: "auto", serverImage: " ", pullPolicy: "missing"},
+		{name: "invalid pull policy", cloneDir: validClone, engine: "auto", serverImage: "image", pullPolicy: "sometimes"},
 	}
 
 	for _, test := range tests {
@@ -143,13 +195,48 @@ func TestReadValidation(t *testing.T) {
 			Configure(v)
 			v.Set(KeyVoxeLibreCloneDir, test.cloneDir)
 			v.Set(KeyContainerEngine, test.engine)
-			v.Set(KeyContainerImage, test.image)
+			v.Set(KeyContainerServerImage, test.serverImage)
 			v.Set(KeyContainerPull, test.pullPolicy)
-			if _, err := Read(v); err == nil {
+			if _, err := ReadServer(v); err == nil {
 				t.Fatal("expected validation error")
 			}
 		})
 	}
+}
+
+func TestImageValidationOnlyRequiresSelectedImage(t *testing.T) {
+	cloneDirectory := makeGame(t, t.TempDir(), "game")
+
+	t.Run("server ignores empty client image", func(t *testing.T) {
+		v := viper.New()
+		Configure(v)
+		v.Set(KeyVoxeLibreCloneDir, cloneDirectory)
+		v.Set(KeyContainerClientImage, " ")
+		if _, err := ReadServer(v); err != nil {
+			t.Fatalf("ReadServer() unexpectedly validated client image: %v", err)
+		}
+	})
+
+	t.Run("client ignores empty server image", func(t *testing.T) {
+		v := viper.New()
+		Configure(v)
+		v.Set(KeyContainerServerImage, " ")
+		if _, err := ReadContainer(v); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadClientImage(v); err != nil {
+			t.Fatalf("ReadClientImage() unexpectedly validated server image: %v", err)
+		}
+	})
+
+	t.Run("selected client image must not be empty", func(t *testing.T) {
+		v := viper.New()
+		Configure(v)
+		v.Set(KeyContainerClientImage, " ")
+		if _, err := ReadClientImage(v); err == nil {
+			t.Fatal("expected empty client image error")
+		}
+	})
 }
 
 func TestLoadFileErrors(t *testing.T) {
@@ -185,4 +272,13 @@ func assertEqual(t *testing.T, name, actual, expected string) {
 	if actual != expected {
 		t.Fatalf("%s: got %q, want %q", name, actual, expected)
 	}
+}
+
+func mustWorkingDirectory(t *testing.T) string {
+	t.Helper()
+	directory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
