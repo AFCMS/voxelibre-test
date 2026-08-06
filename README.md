@@ -2,10 +2,10 @@
 
 Automated containerised testing for the VoxeLibre project.
 
-It consist of:
+It consists of:
 
-- A Docker image with custom client and server builds of Luanti.
-- A native Go CLI tool to automate running those builds from the Docker image (docker or podman).
+- Separate OCI images containing custom client and server builds of Luanti.
+- A native Go CLI tool to automate running those builds with Docker or Podman.
 
 ## Goals
 
@@ -71,7 +71,7 @@ Image pull policies are:
 Will create the `vltest` binary for the host platform in the current directory.
 
 ```shell
-docker build -f docker/Dockerfile --output type=local,dest=. .
+docker bake --set vltest.output=type=local,dest=. vltest
 ```
 
 ```go

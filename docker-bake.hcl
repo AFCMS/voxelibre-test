@@ -5,7 +5,7 @@ target "docker-metadata-action" {}
 
 target "vltest" {
     context = "."
-    dockerfile = "docker/Dockerfile"
+    dockerfile = "docker/vltest/Dockerfile"
 }
 
 target "luanti-client" {
