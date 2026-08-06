@@ -173,15 +173,39 @@ RUN cmake -S . -B build-server -G Ninja \
     cmake --install build-server
 
 
-FROM alpine:${ALPINE_VERSION} AS runtime
+FROM alpine:${ALPINE_VERSION} AS runtime-base
+
+RUN mkdir -p \
+    /etc/minetest \
+    /var/lib/minetest/games \
+    /var/lib/minetest/mods \
+    /var/lib/minetest/worlds
+
+COPY --from=build-base /usr/local/lib/libluajit* /usr/local/lib/
+
+ENV LUANTI_GAME_PATH=/var/lib/minetest/games \
+    LUANTI_MOD_PATH=/var/lib/minetest/mods \
+    LUANTI_WORLD_PATH=/var/lib/minetest/worlds \
+    MINETEST_GAME_PATH=/var/lib/minetest/games \
+    MINETEST_MOD_PATH=/var/lib/minetest/mods \
+    MINETEST_WORLD_PATH=/var/lib/minetest/worlds
+
+WORKDIR /var/lib/minetest
+
+USER root
+
+VOLUME ["/var/lib/minetest", "/etc/minetest"]
+
+
+FROM runtime-base AS luanti-clients
 
 RUN apk add --no-cache \
-    curl \
     freetype \
     gmp \
     hiredis \
     jsoncpp \
     leveldb \
+    libcurl \
     libgcc \
     libintl \
     libjpeg-turbo \
@@ -193,44 +217,36 @@ RUN apk add --no-cache \
     libvorbis \
     mesa-gl \
     openal-soft \
-    postgresql \
     sdl2 \
     sqlite-libs \
     zlib \
-    zstd-libs && \
-    adduser -D -u 30000 -h /var/lib/minetest minetest && \
-    mkdir -p \
-    /etc/minetest \
-    /var/lib/minetest/games \
-    /var/lib/minetest/mods \
-    /var/lib/minetest/worlds && \
-    chown -R minetest:minetest /etc/minetest /var/lib/minetest
+    zstd-libs
 
-COPY --from=build-base /usr/local/lib/libluajit* /usr/local/lib/
+COPY --from=luanti-5.16.1-client /work/dist/luanti-5.16.1-client /work/dist/luanti-5.16.1-client
+COPY --from=luanti-5.15.2-client /work/dist/luanti-5.15.2-client /work/dist/luanti-5.15.2-client
+COPY --from=luanti-5.14.0-client /work/dist/luanti-5.14.0-client /work/dist/luanti-5.14.0-client
 
-COPY --chown=minetest:minetest --from=luanti-5.16.1-client /work/dist/luanti-5.16.1-client /work/dist/luanti-5.16.1-client
-COPY --chown=minetest:minetest --from=luanti-5.16.1-server /work/dist/luanti-5.16.1-server /work/dist/luanti-5.16.1-server
-COPY --chown=minetest:minetest --from=luanti-5.15.2-client /work/dist/luanti-5.15.2-client /work/dist/luanti-5.15.2-client
-COPY --chown=minetest:minetest --from=luanti-5.15.2-server /work/dist/luanti-5.15.2-server /work/dist/luanti-5.15.2-server
-COPY --chown=minetest:minetest --from=luanti-5.14.0-client /work/dist/luanti-5.14.0-client /work/dist/luanti-5.14.0-client
-COPY --chown=minetest:minetest --from=luanti-5.14.0-server /work/dist/luanti-5.14.0-server /work/dist/luanti-5.14.0-server
 
-COPY --chown=minetest:minetest --from=luanti-5.16.1-server /work/dist/luanti-5.16.1-server/minetest.conf.example /etc/minetest/minetest.conf
+FROM runtime-base AS luanti-servers
 
-ENV LUANTI_GAME_PATH=/var/lib/minetest/games \
-    LUANTI_MOD_PATH=/var/lib/minetest/mods \
-    LUANTI_WORLD_PATH=/var/lib/minetest/worlds \
-    MINETEST_GAME_PATH=/var/lib/minetest/games \
-    MINETEST_MOD_PATH=/var/lib/minetest/mods \
-    MINETEST_WORLD_PATH=/var/lib/minetest/worlds
+RUN apk add --no-cache \
+    gmp \
+    hiredis \
+    jsoncpp \
+    leveldb \
+    libcurl \
+    libgcc \
+    libpq \
+    libspatialindex \
+    libstdc++ \
+    sqlite-libs \
+    zlib \
+    zstd-libs
 
-WORKDIR /var/lib/minetest
+COPY --from=luanti-5.16.1-server /work/dist/luanti-5.16.1-server /work/dist/luanti-5.16.1-server
+COPY --from=luanti-5.15.2-server /work/dist/luanti-5.15.2-server /work/dist/luanti-5.15.2-server
+COPY --from=luanti-5.14.0-server /work/dist/luanti-5.14.0-server /work/dist/luanti-5.14.0-server
 
-USER minetest:minetest
+COPY --from=luanti-5.16.1-server /work/dist/luanti-5.16.1-server/minetest.conf.example /etc/minetest/minetest.conf
 
 EXPOSE 30000/udp 30000/tcp
-
-VOLUME ["/var/lib/minetest", "/etc/minetest"]
-
-ENTRYPOINT ["/work/dist/luanti-5.16.1-server/bin/luantiserver"]
-CMD ["--config", "/etc/minetest/minetest.conf", "--world", "/var/lib/minetest/worlds/world", "--logfile", "/var/lib/minetest/debug.txt"]

@@ -1,4 +1,5 @@
 /.forgejo
 /.vscode
+/.agents
 /AGENTS.md
 /voxelibre-test*

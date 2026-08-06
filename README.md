@@ -2,6 +2,11 @@
 
 Automated containerised testing for the VoxeLibre project.
 
+It consist of:
+
+- A Docker image with custom client and server builds of Luanti.
+- A native Go CLI tool to automate running those builds from the Docker image (docker or podman).
+
 ## Goals
 
 - Automated server testing on multiple Luanti versions
