@@ -21,7 +21,7 @@ on:
 jobs:
   vltest:
     name: VL Test
-    runs-on: ubuntu-latest
+    runs-on: docker-24
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -45,7 +45,7 @@ jobs:
 
   vltest-lint:
     name: VL Test Lint
-    runs-on: ubuntu-latest
+    runs-on: docker-24
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
