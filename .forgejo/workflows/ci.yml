@@ -66,9 +66,9 @@ jobs:
       - vltest
       - vltest-lint
     uses: https://github.com/docker/github-builder/.github/workflows/bake.yml@v1
-    permissions:
-      contents: read
-      packages: write
+    # permissions:
+    #  contents: read
+    #  packages: write
     # Probably non-functional due to https://github.com/docker/github-builder/issues/191
     if: false
     with:
