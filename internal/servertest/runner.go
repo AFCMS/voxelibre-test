@@ -70,29 +70,41 @@ func (suite *Suite) Run(ctx context.Context) error {
 			break
 		}
 
-		fmt.Fprintf(suite.output, "START Luanti %s\n", version.Version)
-		logOutput := startWorkflowLogGroup(suite.output, fmt.Sprintf("Luanti %s server logs", version.Version))
-		err := suite.runVersion(ctx, version, logOutput)
-		logOutput.End()
+		if err := writeTestOutput(suite.output, "START Luanti %s\n", version.Version); err != nil {
+			return err
+		}
+		logOutput, err := startWorkflowLogGroup(suite.output, fmt.Sprintf("Luanti %s server logs", version.Version))
+		if err != nil {
+			return err
+		}
+		err = suite.runVersion(ctx, version, logOutput)
+		if endErr := logOutput.End(); endErr != nil {
+			return errors.Join(err, endErr)
+		}
 		completed++
 		if err != nil {
-			fmt.Fprintf(suite.output, "FAIL  Luanti %s: %v\n", version.Version, err)
-			writeWorkflowError(
+			if writeErr := writeTestOutput(suite.output, "FAIL  Luanti %s: %v\n", version.Version, err); writeErr != nil {
+				return errors.Join(err, writeErr)
+			}
+			if writeErr := writeWorkflowError(
 				suite.output,
 				fmt.Sprintf("Luanti %s startup test failed", version.Version),
 				err.Error(),
-			)
-			failures = append(failures, fmt.Errorf("Luanti %s: %w", version.Version, err))
+			); writeErr != nil {
+				return errors.Join(err, writeErr)
+			}
+			failures = append(failures, fmt.Errorf("luanti %s: %w", version.Version, err))
 			continue
 		}
-		fmt.Fprintf(suite.output, "PASS  Luanti %s\n", version.Version)
+		if err := writeTestOutput(suite.output, "PASS  Luanti %s\n", version.Version); err != nil {
+			return err
+		}
 	}
 
 	if len(failures) > 0 {
 		return fmt.Errorf("%d of %d completed server startup tests failed: %w", len(failures), completed, errors.Join(failures...))
 	}
-	fmt.Fprintf(suite.output, "PASS  all %d server startup tests\n", completed)
-	return nil
+	return writeTestOutput(suite.output, "PASS  all %d server startup tests\n", completed)
 }
 
 func (suite *Suite) runVersion(
@@ -218,9 +230,11 @@ type workflowLogGroup struct {
 	logsEndWithLine bool
 }
 
-func startWorkflowLogGroup(output io.Writer, title string) *workflowLogGroup {
-	fmt.Fprintf(output, "::group::%s\n", escapeWorkflowData(title))
-	return &workflowLogGroup{output: output}
+func startWorkflowLogGroup(output io.Writer, title string) (*workflowLogGroup, error) {
+	if err := writeTestOutput(output, "::group::%s\n", escapeWorkflowData(title)); err != nil {
+		return nil, err
+	}
+	return &workflowLogGroup{output: output}, nil
 }
 
 func (group *workflowLogGroup) Write(data []byte) (int, error) {
@@ -232,20 +246,28 @@ func (group *workflowLogGroup) Write(data []byte) (int, error) {
 	return written, err
 }
 
-func (group *workflowLogGroup) End() {
+func (group *workflowLogGroup) End() error {
+	var resultErr error
 	if group.wroteLogs && !group.logsEndWithLine {
-		fmt.Fprintln(group.output)
+		resultErr = writeTestOutput(group.output, "\n")
 	}
-	fmt.Fprintln(group.output, "::endgroup::")
+	return errors.Join(resultErr, writeTestOutput(group.output, "::endgroup::\n"))
 }
 
-func writeWorkflowError(output io.Writer, title, message string) {
-	fmt.Fprintf(
+func writeWorkflowError(output io.Writer, title, message string) error {
+	return writeTestOutput(
 		output,
 		"::error title=%s::%s\n",
 		escapeWorkflowProperty(title),
 		escapeWorkflowData(message),
 	)
+}
+
+func writeTestOutput(output io.Writer, format string, arguments ...any) error {
+	if _, err := fmt.Fprintf(output, format, arguments...); err != nil {
+		return fmt.Errorf("write server test output: %w", err)
+	}
+	return nil
 }
 
 func escapeWorkflowData(value string) string {

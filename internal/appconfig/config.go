@@ -37,7 +37,7 @@ const (
 	FlagClientImage   = "client-image"
 	FlagPullPolicy    = "pull-policy"
 	FlagOutputDir     = "output-dir"
-	defaultConfigName = "vltest"
+	defaultConfigFile = "vltest.json"
 )
 
 type ContainerSettings struct {
@@ -101,11 +101,7 @@ func AddExtractBuildFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 
 func LoadFile(v *viper.Viper, explicitPath string) error {
 	if explicitPath != "" {
-		v.SetConfigFile(explicitPath)
-		if err := v.ReadInConfig(); err != nil {
-			return fmt.Errorf("read config file %q: %w", explicitPath, err)
-		}
-		return nil
+		return loadConfigFile(v, explicitPath)
 	}
 
 	workingDirectory, err := os.Getwd()
@@ -117,19 +113,32 @@ func LoadFile(v *viper.Viper, explicitPath string) error {
 		return fmt.Errorf("get user config directory: %w", err)
 	}
 
-	v.SetConfigName(defaultConfigName)
-	v.SetConfigType("json")
-	v.AddConfigPath(workingDirectory)
-	v.AddConfigPath(userConfigDirectory)
-
-	if err := v.ReadInConfig(); err != nil {
-		var notFound viper.ConfigFileNotFoundError
-		if errors.As(err, &notFound) {
-			return nil
+	for _, directory := range []string{workingDirectory, userConfigDirectory} {
+		path := filepath.Join(directory, defaultConfigFile)
+		if _, err := os.Stat(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("inspect config file %q: %w", path, err)
 		}
-		return fmt.Errorf("read config file: %w", err)
+		return loadConfigFile(v, path)
 	}
 
+	return nil
+}
+
+func loadConfigFile(v *viper.Viper, path string) error {
+	v.SetConfigFile(path)
+	if err := v.ReadInConfig(); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("config file %q does not exist", path)
+		}
+		var parseError viper.ConfigParseError
+		if errors.As(err, &parseError) {
+			return fmt.Errorf("parse config file %q: %w", path, parseError.Unwrap())
+		}
+		return fmt.Errorf("read config file %q: %w", path, err)
+	}
 	return nil
 }
 

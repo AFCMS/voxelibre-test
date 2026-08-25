@@ -252,7 +252,9 @@ func TestWorkflowLogGroupClosesOnNewLine(t *testing.T) {
 
 func TestWorkflowErrorEscapesCommandValues(t *testing.T) {
 	var output bytes.Buffer
-	writeWorkflowError(&output, "Luanti: 5.16.1, client", "failed 100%\r\nretry")
+	if err := writeWorkflowError(&output, "Luanti: 5.16.1, client", "failed 100%\r\nretry"); err != nil {
+		t.Fatal(err)
+	}
 
 	want := "::error title=Luanti%3A 5.16.1%2C client::failed 100%25%0D%0Aretry\n"
 	if output.String() != want {

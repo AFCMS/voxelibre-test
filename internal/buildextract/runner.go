@@ -117,7 +117,9 @@ func (runner *Runner) Run(ctx context.Context) (resultErr error) {
 		containerIDs = append(containerIDs, containerID)
 
 		for _, build := range group.builds {
-			fmt.Fprintf(runner.output, "EXTRACT %s\n", build.Name())
+			if _, err := fmt.Fprintf(runner.output, "EXTRACT %s\n", build.Name()); err != nil {
+				return fmt.Errorf("write extraction status: %w", err)
+			}
 			stagedPath := filepath.Join(stagingDir, build.Name())
 			if err := runner.engine.CopyFrom(ctx, containerID, build.ContainerPath(), stagedPath); err != nil {
 				return fmt.Errorf("extract %s from image: %w", build.Name(), err)
@@ -145,7 +147,9 @@ func (runner *Runner) Run(ctx context.Context) (resultErr error) {
 		committedPaths = append(committedPaths, destinationPath)
 	}
 	for _, destinationPath := range committedPaths {
-		fmt.Fprintf(runner.output, "WROTE   %s\n", destinationPath)
+		if _, err := fmt.Fprintf(runner.output, "WROTE   %s\n", destinationPath); err != nil {
+			return fmt.Errorf("write extraction status: %w", err)
+		}
 	}
 
 	return nil

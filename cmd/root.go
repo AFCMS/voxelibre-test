@@ -36,7 +36,13 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 		if used := configuration.ConfigFileUsed(); used != "" {
-			fmt.Fprintln(cmd.ErrOrStderr(), "Using config file:", used)
+			if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Loaded config file %q\n", used); err != nil {
+				return fmt.Errorf("write config file status: %w", err)
+			}
+		} else {
+			if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "No config file found; continuing without one"); err != nil {
+				return fmt.Errorf("write config file status: %w", err)
+			}
 		}
 		return nil
 	},
