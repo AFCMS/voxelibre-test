@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VoxeLibre Test Runner configuration",
+  "description": "Configuration file for the vltest command-line interface.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "voxelibre": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clone_dir": {
+          "description": "Path to the VoxeLibre clone on the container host.",
+          "type": "string",
+          "pattern": "\\S",
+          "default": "./VoxeLibre"
+        }
+      }
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "description": "Container engine to use.",
+          "type": "string",
+          "enum": ["auto", "docker", "podman"],
+          "default": "auto"
+        },
+        "server_image": {
+          "description": "Local or remote Luanti server builds image.",
+          "type": "string",
+          "pattern": "\\S",
+          "default": "git.minetest.land/voxelibre/voxelibre-test/luanti-server:latest"
+        },
+        "client_image": {
+          "description": "Local or remote Luanti client builds image.",
+          "type": "string",
+          "pattern": "\\S",
+          "default": "git.minetest.land/voxelibre/voxelibre-test/luanti-client:latest"
+        },
+        "pull_policy": {
+          "description": "Image pull policy.",
+          "type": "string",
+          "enum": ["always", "missing", "never"],
+          "default": "missing"
+        }
+      }
+    },
+    "extract_builds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "output_dir": {
+          "description": "Directory in which extracted build directories are created.",
+          "type": "string",
+          "pattern": "\\S",
+          "default": "./builds"
+        }
+      }
+    }
+  }
+}

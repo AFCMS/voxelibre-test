@@ -1,6 +1,7 @@
 # Build outputs
 /voxelibre-test*
 /vltest*
+!vltest.schema.json
 
 # Development VoxeLibre
 /VoxeLibre

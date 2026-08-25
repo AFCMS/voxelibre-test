@@ -95,6 +95,7 @@ usable Docker daemon first and then Podman. Select Podman explicitly with
 
 By default, `vltest` searches for `vltest.json` in the working directory and
 the user configuration directory. Use `--config` to select a specific file.
+The configuration format is described by [`vltest.schema.json`](vltest.schema.json).
 
 ```json
 {

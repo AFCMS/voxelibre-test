@@ -21,5 +21,13 @@
   },
   "[dockerbake]": {
     "editor.defaultFormatter": "docker.docker"
-  }
+  },
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "vltest.json"
+      ],
+      "url": "./vltest.schema.json"
+    }
+  ]
 }

@@ -44,6 +44,7 @@ it unless a task explicitly asks for changes to the game checkout.
 │   └── vltest/Dockerfile           Builds the static `vltest` CLI image
 ├── docker-bake.hcl                 Buildx Bake definition
 ├── vltest.json                     Ignored local example configuration
+├── vltest.schema.json              JSON Schema for configuration files
 └── README.md                       User-facing setup and command examples
 ```
 
@@ -64,6 +65,8 @@ invoke an internal runner, print results, and return errors.
 - Configuration precedence is flags, `VLTEST_` environment variables, config
   file, then defaults. Shared container settings belong on the root command.
 - Keep configuration keys and defaults centralized in `internal/appconfig`.
+- Keep `vltest.schema.json` synchronized whenever a Viper configuration key or
+  its accepted type, values, or default changes.
 
 ### Container operations
 
@@ -118,8 +121,8 @@ extract_builds.output_dir
 ```
 
 The container engine accepts `auto`, `docker`, or `podman`. Pull policy accepts
-`always`, `missing`, or `never`. See `README.md` and `vltest.json` for current
-defaults and examples.
+`always`, `missing`, or `never`. See `README.md` and `vltest.schema.json` for
+current defaults and examples.
 
 ## Verification
 
