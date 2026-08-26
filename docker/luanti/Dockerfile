@@ -3,6 +3,12 @@
 # SPDX-FileCopyrightText: 2026 AFCMS <afcm.contact@gmail.com>
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
+# Luanti versions:
+# - 5.17.0
+# - 5.16.1
+# - 5.15.2
+# - 5.14.0
+
 ARG DEBIAN_VERSION=trixie-slim
 ARG BUILD_JOBS=2
 
@@ -55,6 +61,63 @@ RUN apt-get update && \
 
 COPY --chmod=0755 docker/luanti/bundle-libraries.sh /usr/local/bin/bundle-libraries
 
+###################
+# Luanti 5.17.0   #
+###################
+
+FROM build-base AS luanti-5.17.0-source
+
+ADD https://github.com/luanti-org/luanti.git?tag=5.17.0 /work/src/luanti
+
+FROM luanti-5.17.0-source AS luanti-5.17.0-client
+
+WORKDIR /work/src/luanti
+
+RUN cmake -S . -B build-client -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/work/dist/luanti-5.17.0-client \
+    -DRUN_IN_PLACE=TRUE \
+    -DBUILD_CLIENT=TRUE \
+    -DBUILD_SERVER=FALSE \
+    -DBUILD_UNITTESTS=FALSE \
+    -DBUILD_BENCHMARKS=FALSE \
+    -DBUILD_DOCUMENTATION=FALSE \
+    -DENABLE_PROMETHEUS=FALSE \
+    -DENABLE_SPATIAL=TRUE && \
+    cmake --build build-client && \
+    cmake --install build-client
+
+RUN --mount=from=bundle-tools,source=/usr/bin/patchelf,target=/usr/local/bin/patchelf,ro \
+    --mount=from=bundle-tools,source=/usr/local/bin/bundle-libraries,target=/usr/local/bin/bundle-libraries,ro \
+    LD_LIBRARY_PATH=/usr/local/lib \
+    bundle-libraries /work/dist/luanti-5.17.0-client bin/luanti
+
+FROM luanti-5.17.0-source AS luanti-5.17.0-server
+
+WORKDIR /work/src/luanti
+
+RUN cmake -S . -B build-server -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/work/dist/luanti-5.17.0-server \
+    -DRUN_IN_PLACE=TRUE \
+    -DBUILD_CLIENT=FALSE \
+    -DBUILD_SERVER=TRUE \
+    -DBUILD_UNITTESTS=FALSE \
+    -DBUILD_BENCHMARKS=FALSE \
+    -DBUILD_DOCUMENTATION=FALSE \
+    -DENABLE_PROMETHEUS=FALSE \
+    -DENABLE_SPATIAL=TRUE && \
+    cmake --build build-server && \
+    cmake --install build-server
+
+RUN --mount=from=bundle-tools,source=/usr/bin/patchelf,target=/usr/local/bin/patchelf,ro \
+    --mount=from=bundle-tools,source=/usr/local/bin/bundle-libraries,target=/usr/local/bin/bundle-libraries,ro \
+    LD_LIBRARY_PATH=/usr/local/lib \
+    bundle-libraries /work/dist/luanti-5.17.0-server bin/luantiserver
+
+###################
+# Luanti 5.16.1   #
+###################
 
 FROM build-base AS luanti-5.16.1-source
 
@@ -108,6 +171,9 @@ RUN --mount=from=bundle-tools,source=/usr/bin/patchelf,target=/usr/local/bin/pat
     LD_LIBRARY_PATH=/usr/local/lib \
     bundle-libraries /work/dist/luanti-5.16.1-server bin/luantiserver
 
+###################
+# Luanti 5.15.2   #
+###################
 
 FROM build-base AS luanti-5.15.2-source
 
@@ -161,6 +227,9 @@ RUN --mount=from=bundle-tools,source=/usr/bin/patchelf,target=/usr/local/bin/pat
     LD_LIBRARY_PATH=/usr/local/lib \
     bundle-libraries /work/dist/luanti-5.15.2-server bin/luantiserver
 
+###################
+# Luanti 5.14.0   #
+###################
 
 FROM build-base AS luanti-5.14.0-source
 
@@ -277,6 +346,7 @@ RUN apt-get update && \
     libvorbisfile3 && \
     rm -rf /var/lib/apt/lists/*
 
+COPY --from=luanti-5.17.0-client /work/dist/luanti-5.17.0-client /work/dist/luanti-5.17.0-client
 COPY --from=luanti-5.16.1-client /work/dist/luanti-5.16.1-client /work/dist/luanti-5.16.1-client
 COPY --from=luanti-5.15.2-client /work/dist/luanti-5.15.2-client /work/dist/luanti-5.15.2-client
 COPY --from=luanti-5.14.0-client /work/dist/luanti-5.14.0-client /work/dist/luanti-5.14.0-client
@@ -284,10 +354,11 @@ COPY --from=luanti-5.14.0-client /work/dist/luanti-5.14.0-client /work/dist/luan
 
 FROM runtime-base AS luanti-servers
 
+COPY --from=luanti-5.17.0-server /work/dist/luanti-5.17.0-server /work/dist/luanti-5.17.0-server
 COPY --from=luanti-5.16.1-server /work/dist/luanti-5.16.1-server /work/dist/luanti-5.16.1-server
 COPY --from=luanti-5.15.2-server /work/dist/luanti-5.15.2-server /work/dist/luanti-5.15.2-server
 COPY --from=luanti-5.14.0-server /work/dist/luanti-5.14.0-server /work/dist/luanti-5.14.0-server
 
-COPY --from=luanti-5.16.1-server /work/dist/luanti-5.16.1-server/minetest.conf.example /etc/minetest/minetest.conf
+COPY --from=luanti-5.17.0-server /work/dist/luanti-5.17.0-server/minetest.conf.example /etc/minetest/minetest.conf
 
 EXPOSE 30000/udp 30000/tcp
