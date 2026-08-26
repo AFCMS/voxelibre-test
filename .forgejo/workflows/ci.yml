@@ -43,6 +43,12 @@ jobs:
       - name: Validate formatting
         run: go fmt ./...
 
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: vltest
+          archive: false
+
   vltest-lint:
     name: VL Test Lint
     runs-on: docker-24
