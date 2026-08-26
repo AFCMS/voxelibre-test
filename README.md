@@ -1,16 +1,35 @@
 # VoxeLibre Test Runner
 
-Automated containerised testing for the VoxeLibre project.
+Automated testing for the VoxeLibre project.
 
 It consists of:
 
-- Separate OCI images containing custom client and server builds of Luanti.
+- Separate OCI images containing custom client and server builds of Luanti, as well as other tools.
 - A native Go CLI tool to automate running those builds with Docker or Podman.
 
-## Goals
+## Features
 
-- Automated server testing on multiple Luanti versions
-- Dockerized client testing on multiple Luanti versions
+- [ ] OCI images
+  - [x] Server builds
+  - [x] Client builds
+  - [ ] Tools (LuaLS, etc)
+- [ ] CLI
+  - [x] Automated Docker server startup test with GitHub Actions compatible annotations
+    - [ ] Unittests?
+    - [ ] Test client connection?
+  - [x] Client standalone builds extraction
+  - [ ] Client automated startup
+    - [ ] Native (extraction to temp file system)
+    - [ ] Docker + VNC + Web UI
+    - [ ] Docker + native Wayland socket
+    - [ ] Docker + native X11 socket
+    - [ ] Docker GPU acceleration
+  - [ ] Linting automation (CI + local)
+    - [ ] LuaLS
+  - [x] Config file system
+- [ ] Distribution
+  - [ ] Docker CI
+  - [ ] CLI CI
 
 ## Usage
 
