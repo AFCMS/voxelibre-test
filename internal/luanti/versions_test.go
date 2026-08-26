@@ -10,7 +10,7 @@ import (
 )
 
 func TestAvailableVersions(t *testing.T) {
-	want := []string{"5.14.0", "5.15.2", "5.16.1"}
+	want := []string{"5.14.0", "5.15.2", "5.16.1", "5.17.0"}
 	versions := AvailableVersions()
 	if !reflect.DeepEqual(versions, want) {
 		t.Fatalf("AvailableVersions() = %#v, want %#v", versions, want)
@@ -46,7 +46,7 @@ func TestSelectBuilds(t *testing.T) {
 			name: "all servers",
 			all:  true,
 			kind: BuildKindServer,
-			want: []string{"luanti-5.14.0-server", "luanti-5.15.2-server", "luanti-5.16.1-server"},
+			want: []string{"luanti-5.14.0-server", "luanti-5.15.2-server", "luanti-5.16.1-server", "luanti-5.17.0-server"},
 		},
 		{
 			name: "all builds",
@@ -56,6 +56,7 @@ func TestSelectBuilds(t *testing.T) {
 				"luanti-5.14.0-server", "luanti-5.14.0-client",
 				"luanti-5.15.2-server", "luanti-5.15.2-client",
 				"luanti-5.16.1-server", "luanti-5.16.1-client",
+				"luanti-5.17.0-server", "luanti-5.17.0-client",
 			},
 		},
 	}
@@ -100,10 +101,14 @@ func TestSelectBuildsValidation(t *testing.T) {
 
 func TestSupportedServerVersionsUseCatalogPaths(t *testing.T) {
 	versions := SupportedServerVersions()
-	if len(versions) != 3 {
-		t.Fatalf("server versions = %d, want 3", len(versions))
+	availableVersions := AvailableVersions()
+	if len(versions) != len(availableVersions) {
+		t.Fatalf("server versions = %d, want %d", len(versions), len(availableVersions))
 	}
-	for _, version := range versions {
+	for index, version := range versions {
+		if version.Version != availableVersions[index] {
+			t.Fatalf("server version %d = %q, want %q", index, version.Version, availableVersions[index])
+		}
 		wantSuffix := "/luanti-" + version.Version + "-server/bin/luantiserver"
 		if !strings.HasSuffix(version.Entrypoint, wantSuffix) {
 			t.Fatalf("entrypoint %q does not end in %q", version.Entrypoint, wantSuffix)

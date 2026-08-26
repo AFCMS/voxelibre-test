@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/luanti"
 )
 
 type fakeEngine struct {
@@ -91,6 +93,7 @@ func TestSuiteStartsEverySupportedVersion(t *testing.T) {
 	engine := &fakeEngine{}
 	output := &lockedBuffer{}
 	suite := NewSuite(engine, "image:local", container.PullNever, "/host/VoxeLibre", output)
+	wantTests := len(luanti.SupportedServerVersions())
 
 	if err := suite.Run(context.Background()); err != nil {
 		t.Fatal(err)
@@ -98,7 +101,7 @@ func TestSuiteStartsEverySupportedVersion(t *testing.T) {
 	if engine.ensureCalls != 1 {
 		t.Fatalf("EnsureImage calls = %d, want 1", engine.ensureCalls)
 	}
-	if len(engine.startSpecs) != 3 || len(engine.stopIDs) != 3 || len(engine.removeIDs) != 3 {
+	if len(engine.startSpecs) != wantTests || len(engine.stopIDs) != wantTests || len(engine.removeIDs) != wantTests {
 		t.Fatalf("lifecycle counts: starts=%d stops=%d removes=%d", len(engine.startSpecs), len(engine.stopIDs), len(engine.removeIDs))
 	}
 	for _, spec := range engine.startSpecs {
@@ -118,14 +121,14 @@ func TestSuiteStartsEverySupportedVersion(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(output.String(), "PASS  all 3 server startup tests") {
+	if !strings.Contains(output.String(), fmt.Sprintf("PASS  all %d server startup tests", wantTests)) {
 		t.Fatalf("output = %q", output.String())
 	}
-	if count := strings.Count(output.String(), "::group::Luanti "); count != 3 {
-		t.Fatalf("log group starts = %d, want 3; output = %q", count, output.String())
+	if count := strings.Count(output.String(), "::group::Luanti "); count != wantTests {
+		t.Fatalf("log group starts = %d, want %d; output = %q", count, wantTests, output.String())
 	}
-	if count := strings.Count(output.String(), "::endgroup::"); count != 3 {
-		t.Fatalf("log group ends = %d, want 3; output = %q", count, output.String())
+	if count := strings.Count(output.String(), "::endgroup::"); count != wantTests {
+		t.Fatalf("log group ends = %d, want %d; output = %q", count, wantTests, output.String())
 	}
 	for _, version := range suite.versions {
 		group := "::group::Luanti " + version.Version + " server logs\n"
@@ -215,20 +218,21 @@ func TestSuiteContinuesAfterVersionFailure(t *testing.T) {
 	}
 	output := &lockedBuffer{}
 	suite := NewSuite(engine, "image", container.PullMissing, "/clone", output)
+	wantTests := len(luanti.SupportedServerVersions())
 
 	err := suite.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "1 of 3 completed server startup tests failed") {
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("1 of %d completed server startup tests failed", wantTests)) {
 		t.Fatalf("got %v, want aggregated failure", err)
 	}
-	if len(engine.startSpecs) != 3 {
-		t.Fatalf("started %d versions, want 3", len(engine.startSpecs))
+	if len(engine.startSpecs) != wantTests {
+		t.Fatalf("started %d versions, want %d", len(engine.startSpecs), wantTests)
 	}
 	annotation := "::error title=Luanti 5.15.2 startup test failed::start container: start failed\n"
 	if count := strings.Count(output.String(), annotation); count != 1 {
 		t.Fatalf("failure annotations = %d, want 1; output = %q", count, output.String())
 	}
-	if count := strings.Count(output.String(), "::endgroup::"); count != 3 {
-		t.Fatalf("log group ends = %d, want 3; output = %q", count, output.String())
+	if count := strings.Count(output.String(), "::endgroup::"); count != wantTests {
+		t.Fatalf("log group ends = %d, want %d; output = %q", count, wantTests, output.String())
 	}
 }
 

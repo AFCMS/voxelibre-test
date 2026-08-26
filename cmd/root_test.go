@@ -6,6 +6,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/luanti"
 )
 
 type readyEngine struct {
@@ -134,10 +136,11 @@ func TestRootCommandWiresFlagsThroughViper(t *testing.T) {
 	if len(engine.ensureImages) != 1 || engine.ensureImages[0] != "local-server:test" || engine.policy != container.PullNever {
 		t.Fatalf("image setup = %#v/%q", engine.ensureImages, engine.policy)
 	}
-	if engine.starts != 3 || engine.stops != 3 || engine.removes != 3 {
+	wantTests := len(luanti.SupportedServerVersions())
+	if engine.starts != wantTests || engine.stops != wantTests || engine.removes != wantTests {
 		t.Fatalf("lifecycle counts: starts=%d stops=%d removes=%d", engine.starts, engine.stops, engine.removes)
 	}
-	if !strings.Contains(output.String(), "PASS  all 3 server startup tests") {
+	if !strings.Contains(output.String(), fmt.Sprintf("PASS  all %d server startup tests", wantTests)) {
 		t.Fatalf("output = %q", output.String())
 	}
 }
