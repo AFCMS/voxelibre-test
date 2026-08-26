@@ -32,7 +32,9 @@ jobs:
           go-version: 1.27
 
       - name: Install dependencies
-        run: go mod download
+        run: |
+          go mod download
+          go mod verify
 
       - name: Build VL Test
         run: go build -ldflags="-s -w" -o vltest .
