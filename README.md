@@ -30,6 +30,7 @@ It consists of:
 - [ ] Distribution
   - [ ] Docker CI
   - [ ] CLI CI
+- [ ] User + Agent documentation
 
 ## Usage
 
@@ -155,4 +156,17 @@ Will create the `vltest` binary for the host platform in the current directory.
 
 ```shell
 docker bake --set vltest.output=type=local,dest=. vltest
+```
+
+## Agent skill
+
+An [agent skill](https://agentskills.io) is provided to provide instructions for AI agents to use VoxeLibre testing stack.
+
+You can find it in `.agents/skills/vltest`, or install it using the [`skills`](https://www.skills.sh) CLI:
+
+```shell
+npx skills add https://git.minetest.land/VoxeLibre/voxelibre-test --skill vltest
+
+# Update installed skills
+npx skills update
 ```
