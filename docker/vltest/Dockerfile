@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: 2026 AFCMS <afcm.contact@gmail.com>
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine3.24 AS builder-base
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine3.24 AS builder-base
 
 ARG TARGETOS
 ARG TARGETARCH

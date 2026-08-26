@@ -5,6 +5,7 @@
 
 # Development VoxeLibre
 /VoxeLibre
+/builds
 
 # Created by https://www.toptal.com/developers/gitignore/api/go,visualstudiocode,goland,linux,windows,macos
 # Edit at https://www.toptal.com/developers/gitignore?templates=go,visualstudiocode,goland,linux,windows,macos
