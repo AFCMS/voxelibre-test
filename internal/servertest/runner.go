@@ -102,7 +102,7 @@ func (suite *Suite) Run(ctx context.Context) error {
 	}
 
 	if len(failures) > 0 {
-		return fmt.Errorf("%d of %d completed server startup tests failed: %w", len(failures), completed, errors.Join(failures...))
+		return fmt.Errorf("%d of %d completed server startup tests failed:\n%w", len(failures), completed, errors.Join(failures...))
 	}
 	return writeTestOutput(suite.output, "PASS  all %d server startup tests\n", completed)
 }

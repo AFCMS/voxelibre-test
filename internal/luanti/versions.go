@@ -42,6 +42,7 @@ var availableVersions = [...]string{
 	"5.14.0",
 	"5.15.2",
 	"5.16.1",
+	"5.17.0",
 }
 
 func AvailableVersions() []string {
