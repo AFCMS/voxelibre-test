@@ -35,7 +35,7 @@ jobs:
         run: go mod download
 
       - name: Build VL Test
-        run: go build -o vltest .
+        run: go build -ldflags="-s -w" -o vltest .
 
       - name: Run tests
         run: go test -v ./...
