@@ -14,8 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/clientrun"
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/luanti"
+	"github.com/spf13/cobra"
 )
 
 type readyEngine struct {
@@ -55,7 +57,10 @@ func (engine *readyEngine) CopyFrom(_ context.Context, _, _, destinationPath str
 	engine.mu.Lock()
 	engine.copies++
 	engine.mu.Unlock()
-	return os.MkdirAll(filepath.Join(destinationPath, "bin"), 0o755)
+	if err := os.MkdirAll(filepath.Join(destinationPath, "bin"), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(destinationPath, "bin", "luanti"), []byte("binary"), 0o755)
 }
 
 func (*readyEngine) ReadLogs(context.Context, string) ([]byte, error) {
@@ -233,4 +238,135 @@ func TestExtractBuildsCommandExportsWithoutVoxeLibreClone(t *testing.T) {
 	if !strings.Contains(output.String(), "WROTE   "+filepath.Join(outputDir, "luanti-5.16.1-client")) {
 		t.Fatalf("output = %q", output.String())
 	}
+}
+
+func TestClientNativeRegistrationAndFlags(t *testing.T) {
+	if clientCmd.Parent() != rootCmd {
+		t.Fatal("client command is not registered on rootCmd")
+	}
+	if clientNativeCmd.Parent() != clientCmd {
+		t.Fatal("native command is not registered on clientCmd")
+	}
+	for _, flagName := range []string{"version", "start-world"} {
+		if clientNativeCmd.Flags().Lookup(flagName) == nil {
+			t.Fatalf("client native --%s flag is not registered", flagName)
+		}
+	}
+	if clientCmd.PersistentFlags().Lookup("data-dir") == nil {
+		t.Fatal("client --data-dir flag is not registered")
+	}
+	if flag := clientCmd.PersistentFlags().Lookup("data-dir"); flag.DefValue != "" {
+		t.Fatalf("data-dir default = %q, want empty", flag.DefValue)
+	}
+}
+
+func TestClientNativeCommandLaunchesSelectedBuild(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	cloneDirectory := filepath.Join(temporaryDirectory, "checkout")
+	if err := os.Mkdir(cloneDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cloneDirectory, "game.conf"), []byte("title = VoxeLibre\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(temporaryDirectory, "empty.json")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(temporaryDirectory, "profiles")
+
+	engine := &readyEngine{}
+	selectedEngine := ""
+	var processSpec clientrun.ProcessSpec
+	previousDependencies := commandDependencies
+	commandDependencies = dependencies{
+		newEngine: func(_ context.Context, preference string) (container.Runtime, error) {
+			selectedEngine = preference
+			return engine, nil
+		},
+		runProcess: clientrun.ProcessRunnerFunc(func(_ context.Context, spec clientrun.ProcessSpec) error {
+			processSpec = spec
+			gamePath := environmentEntry(spec.Environment, "LUANTI_GAME_PATH")
+			linkTarget, err := os.Readlink(filepath.Join(gamePath, "voxelibre"))
+			if err != nil {
+				return err
+			}
+			if linkTarget != cloneDirectory {
+				return fmt.Errorf("game link target = %q, want %q", linkTarget, cloneDirectory)
+			}
+			return nil
+		}),
+	}
+	t.Cleanup(func() {
+		commandDependencies = previousDependencies
+		rootCmd.SetArgs(nil)
+		rootCmd.SetIn(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+
+	var output bytes.Buffer
+	rootCmd.SetOut(&output)
+	rootCmd.SetErr(&output)
+	rootCmd.SetArgs([]string{
+		"--config", configPath,
+		"--voxelibre-dir", cloneDirectory,
+		"--container-engine", "podman",
+		"--client-image", "client-image:local",
+		"--pull-policy", "never",
+		"client", "native",
+		"--version", "5.16.1",
+		"--data-dir", dataDir,
+		"--start-world",
+		"--", "--name", "Test Player",
+	})
+
+	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if selectedEngine != "podman" {
+		t.Fatalf("selected engine = %q, want podman", selectedEngine)
+	}
+	if len(engine.ensureImages) != 1 || engine.ensureImages[0] != "client-image:local" || engine.policy != container.PullNever {
+		t.Fatalf("image setup = %#v/%q", engine.ensureImages, engine.policy)
+	}
+	profileDir := filepath.Join(dataDir, "luanti-5.16.1-client")
+	wantArguments := []string{
+		"--world", filepath.Join(profileDir, "worlds", "vltest"),
+		"--gameid", "voxelibre", "--go",
+		"--name", "Test Player",
+	}
+	if processSpec.Directory != profileDir || processSpec.Executable != filepath.Join(profileDir, "bin", "luanti") {
+		t.Fatalf("process directory/executable = %q/%q", processSpec.Directory, processSpec.Executable)
+	}
+	if strings.Join(processSpec.Arguments, "\x00") != strings.Join(wantArguments, "\x00") {
+		t.Fatalf("process arguments = %#v, want %#v", processSpec.Arguments, wantArguments)
+	}
+	if legacy := environmentEntry(processSpec.Environment, "MINETEST_GAME_PATH"); legacy == "" {
+		t.Fatal("legacy game path environment variable is missing")
+	}
+	if !strings.Contains(output.String(), "WROTE   "+profileDir) {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
+func TestClientNativeRequiresArgumentDelimiter(t *testing.T) {
+	command := &cobra.Command{}
+	if err := command.Flags().Parse([]string{"verbose"}); err != nil {
+		t.Fatal(err)
+	}
+	err := clientNativeCmd.Args(command, command.Flags().Args())
+	if err == nil || !strings.Contains(err.Error(), "must follow --") {
+		t.Fatalf("delimiter error = %v", err)
+	}
+}
+
+func environmentEntry(environment []string, key string) string {
+	prefix := key + "="
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }

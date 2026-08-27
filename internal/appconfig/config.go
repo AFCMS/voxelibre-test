@@ -20,6 +20,7 @@ const (
 	KeyContainerServerImage = "container.server_image"
 	KeyContainerClientImage = "container.client_image"
 	KeyContainerPull        = "container.pull_policy"
+	KeyClientDataDir        = "client.data_dir"
 	KeyExtractOutputDir     = "extract_builds.output_dir"
 
 	DefaultVoxeLibreCloneDir    = "./VoxeLibre"
@@ -27,6 +28,7 @@ const (
 	DefaultContainerServerImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-server:latest"
 	DefaultContainerClientImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-client:latest"
 	DefaultContainerPull        = "missing"
+	DefaultClientDataDir        = ""
 	DefaultExtractOutputDir     = "./builds"
 )
 
@@ -36,6 +38,7 @@ const (
 	FlagServerImage   = "server-image"
 	FlagClientImage   = "client-image"
 	FlagPullPolicy    = "pull-policy"
+	FlagClientDataDir = "data-dir"
 	FlagOutputDir     = "output-dir"
 	defaultConfigFile = "vltest.json"
 )
@@ -55,12 +58,20 @@ type ServerSettings struct {
 	Image             string
 }
 
+type ClientSettings struct {
+	VoxeLibreCloneDir string
+	DataDir           string
+	Container         ContainerSettings
+	Image             string
+}
+
 func Configure(v *viper.Viper) {
 	v.SetDefault(KeyVoxeLibreCloneDir, DefaultVoxeLibreCloneDir)
 	v.SetDefault(KeyContainerEngine, DefaultContainerEngine)
 	v.SetDefault(KeyContainerServerImage, DefaultContainerServerImage)
 	v.SetDefault(KeyContainerClientImage, DefaultContainerClientImage)
 	v.SetDefault(KeyContainerPull, DefaultContainerPull)
+	v.SetDefault(KeyClientDataDir, DefaultClientDataDir)
 	v.SetDefault(KeyExtractOutputDir, DefaultExtractOutputDir)
 
 	v.SetEnvPrefix("VLTEST")
@@ -68,8 +79,16 @@ func Configure(v *viper.Viper) {
 	v.AutomaticEnv()
 }
 
+func AddClientFlags(v *viper.Viper, flags *pflag.FlagSet) error {
+	flags.String(FlagClientDataDir, DefaultClientDataDir, "persistent directory for version-isolated client profiles")
+	if err := v.BindPFlag(KeyClientDataDir, flags.Lookup(FlagClientDataDir)); err != nil {
+		return fmt.Errorf("bind --%s to %s: %w", FlagClientDataDir, KeyClientDataDir, err)
+	}
+	return nil
+}
+
 func AddPersistentFlags(v *viper.Viper, flags *pflag.FlagSet) error {
-	flags.String(FlagVoxeLibreDir, DefaultVoxeLibreCloneDir, "path to the VoxeLibre clone on the container host")
+	flags.String(FlagVoxeLibreDir, DefaultVoxeLibreCloneDir, "path to the VoxeLibre clone")
 	flags.String(FlagEngine, DefaultContainerEngine, "container engine to use (auto, docker, or podman)")
 	flags.String(FlagServerImage, DefaultContainerServerImage, "local or remote Luanti server builds image")
 	flags.String(FlagClientImage, DefaultContainerClientImage, "local or remote Luanti client builds image")
@@ -152,39 +171,75 @@ func ReadServer(v *viper.Viper) (ServerSettings, error) {
 		return ServerSettings{}, err
 	}
 	settings := ServerSettings{
-		VoxeLibreCloneDir: strings.TrimSpace(v.GetString(KeyVoxeLibreCloneDir)),
-		Container:         containerSettings,
-		Image:             image,
+		Container: containerSettings,
+		Image:     image,
+	}
+	settings.VoxeLibreCloneDir, err = ReadVoxeLibreCloneDir(v)
+	if err != nil {
+		return ServerSettings{}, err
+	}
+	return settings, nil
+}
+
+func ReadClient(v *viper.Viper) (ClientSettings, error) {
+	containerSettings, err := ReadContainer(v)
+	if err != nil {
+		return ClientSettings{}, err
+	}
+	image, err := ReadClientImage(v)
+	if err != nil {
+		return ClientSettings{}, err
+	}
+	cloneDir, err := ReadVoxeLibreCloneDir(v)
+	if err != nil {
+		return ClientSettings{}, err
 	}
 
-	if settings.VoxeLibreCloneDir == "" {
-		return ServerSettings{}, errors.New("voxelibre clone directory must not be empty")
+	dataDir := strings.TrimSpace(v.GetString(KeyClientDataDir))
+	if dataDir != "" {
+		dataDir, err = filepath.Abs(dataDir)
+		if err != nil {
+			return ClientSettings{}, fmt.Errorf("resolve client data directory: %w", err)
+		}
 	}
-	absoluteCloneDir, err := filepath.Abs(settings.VoxeLibreCloneDir)
+
+	return ClientSettings{
+		VoxeLibreCloneDir: cloneDir,
+		DataDir:           dataDir,
+		Container:         containerSettings,
+		Image:             image,
+	}, nil
+}
+
+func ReadVoxeLibreCloneDir(v *viper.Viper) (string, error) {
+	cloneDir := strings.TrimSpace(v.GetString(KeyVoxeLibreCloneDir))
+	if cloneDir == "" {
+		return "", errors.New("voxelibre clone directory must not be empty")
+	}
+	absoluteCloneDir, err := filepath.Abs(cloneDir)
 	if err != nil {
-		return ServerSettings{}, fmt.Errorf("resolve VoxeLibre clone directory: %w", err)
+		return "", fmt.Errorf("resolve VoxeLibre clone directory: %w", err)
 	}
 	resolvedCloneDir, err := filepath.EvalSymlinks(absoluteCloneDir)
 	if err != nil {
-		return ServerSettings{}, fmt.Errorf("resolve VoxeLibre clone directory %q: %w", absoluteCloneDir, err)
+		return "", fmt.Errorf("resolve VoxeLibre clone directory %q: %w", absoluteCloneDir, err)
 	}
 	cloneInfo, err := os.Stat(resolvedCloneDir)
 	if err != nil {
-		return ServerSettings{}, fmt.Errorf("inspect VoxeLibre clone directory %q: %w", resolvedCloneDir, err)
+		return "", fmt.Errorf("inspect VoxeLibre clone directory %q: %w", resolvedCloneDir, err)
 	}
 	if !cloneInfo.IsDir() {
-		return ServerSettings{}, fmt.Errorf("VoxeLibre clone path %q is not a directory", resolvedCloneDir)
+		return "", fmt.Errorf("VoxeLibre clone path %q is not a directory", resolvedCloneDir)
 	}
 	gameConfigPath := filepath.Join(resolvedCloneDir, "game.conf")
 	gameConfigInfo, err := os.Stat(gameConfigPath)
 	if err != nil {
-		return ServerSettings{}, fmt.Errorf("VoxeLibre clone must contain game.conf: %w", err)
+		return "", fmt.Errorf("VoxeLibre clone must contain game.conf: %w", err)
 	}
 	if !gameConfigInfo.Mode().IsRegular() {
-		return ServerSettings{}, fmt.Errorf("VoxeLibre game config %q is not a regular file", gameConfigPath)
+		return "", fmt.Errorf("VoxeLibre game config %q is not a regular file", gameConfigPath)
 	}
-	settings.VoxeLibreCloneDir = resolvedCloneDir
-	return settings, nil
+	return resolvedCloneDir, nil
 }
 
 func ReadContainer(v *viper.Viper) (ContainerSettings, error) {

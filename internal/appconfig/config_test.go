@@ -4,6 +4,7 @@
 package appconfig
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,7 @@ func TestConfigureDefaults(t *testing.T) {
 	assertEqual(t, KeyContainerServerImage, v.GetString(KeyContainerServerImage), DefaultContainerServerImage)
 	assertEqual(t, KeyContainerClientImage, v.GetString(KeyContainerClientImage), DefaultContainerClientImage)
 	assertEqual(t, KeyContainerPull, v.GetString(KeyContainerPull), DefaultContainerPull)
+	assertEqual(t, KeyClientDataDir, v.GetString(KeyClientDataDir), DefaultClientDataDir)
 	assertEqual(t, KeyExtractOutputDir, v.GetString(KeyExtractOutputDir), DefaultExtractOutputDir)
 }
 
@@ -36,6 +38,57 @@ func TestReadResolvesRelativeClonePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertEqual(t, KeyVoxeLibreCloneDir, settings.VoxeLibreCloneDir, filepath.Join(temporaryDirectory, "relative-game"))
+}
+
+func TestReadClientResolvesCloneAndOptionalDataDirectory(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	makeGame(t, temporaryDirectory, "game")
+	t.Chdir(temporaryDirectory)
+
+	v := viper.New()
+	Configure(v)
+	v.Set(KeyVoxeLibreCloneDir, "game")
+	v.Set(KeyClientDataDir, "profiles")
+	settings, err := ReadClient(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, KeyVoxeLibreCloneDir, settings.VoxeLibreCloneDir, filepath.Join(temporaryDirectory, "game"))
+	assertEqual(t, KeyClientDataDir, settings.DataDir, filepath.Join(temporaryDirectory, "profiles"))
+	assertEqual(t, KeyContainerClientImage, settings.Image, DefaultContainerClientImage)
+
+	v.Set(KeyClientDataDir, "  ")
+	settings, err = ReadClient(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, KeyClientDataDir, settings.DataDir, "")
+}
+
+func TestConfigurationSchemaDefinesOptionalClientDataDirectory(t *testing.T) {
+	schemaBytes, err := os.ReadFile(filepath.Join("..", "..", "vltest.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Properties map[string]struct {
+				Type    string `json:"type"`
+				Default any    `json:"default"`
+			} `json:"properties"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+		t.Fatal(err)
+	}
+	client, exists := schema.Properties["client"]
+	if !exists {
+		t.Fatal("schema does not define client settings")
+	}
+	dataDir, exists := client.Properties["data_dir"]
+	if !exists || dataDir.Type != "string" || dataDir.Default != "" {
+		t.Fatalf("client.data_dir schema = %#v", dataDir)
+	}
 }
 
 func TestReadValidation(t *testing.T) {

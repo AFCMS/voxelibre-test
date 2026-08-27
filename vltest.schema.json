@@ -10,7 +10,7 @@
       "additionalProperties": false,
       "properties": {
         "clone_dir": {
-          "description": "Path to the VoxeLibre clone on the container host.",
+          "description": "Path to the VoxeLibre clone.",
           "type": "string",
           "pattern": "\\S",
           "default": "./VoxeLibre"
@@ -44,6 +44,17 @@
           "type": "string",
           "enum": ["always", "missing", "never"],
           "default": "missing"
+        }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "data_dir": {
+          "description": "Persistent directory for version-isolated client profiles. An empty value makes client sessions ephemeral.",
+          "type": "string",
+          "default": ""
         }
       }
     },

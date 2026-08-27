@@ -11,13 +11,15 @@ import (
 	"syscall"
 
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/appconfig"
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/clientrun"
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 type dependencies struct {
-	newEngine func(context.Context, string) (container.Runtime, error)
+	newEngine  func(context.Context, string) (container.Runtime, error)
+	runProcess clientrun.ProcessRunner
 }
 
 var (
@@ -29,7 +31,7 @@ var (
 // rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
 	Use:          "vltest",
-	Short:        "Run containerized compatibility tests for VoxeLibre",
+	Short:        "Run compatibility tests and clients for VoxeLibre",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		if err := appconfig.LoadFile(configuration, configFile); err != nil {
@@ -53,6 +55,7 @@ func defaultDependencies() dependencies {
 		newEngine: func(ctx context.Context, preference string) (container.Runtime, error) {
 			return container.NewCLIEngine(ctx, preference)
 		},
+		runProcess: clientrun.ExecProcessRunner{},
 	}
 }
 
