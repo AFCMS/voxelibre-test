@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 AFCMS <afcm.contact@gmail.com>
 // SPDX-License-Identifier: LGPL-3.0-or-later
 
-target "docker-metadata-action" {}
+target "docker-metadata-action-luanti-client" {}
+
+target "docker-metadata-action-luanti-server" {}
 
 target "vltest" {
     context = "."
@@ -9,12 +11,14 @@ target "vltest" {
 }
 
 target "luanti-client" {
+    inherits = ["docker-metadata-action-luanti-client"]
     context = "."
     dockerfile = "docker/luanti/Dockerfile"
     target = "luanti-clients"
 }
 
 target "luanti-server" {
+    inherits = ["docker-metadata-action-luanti-server"]
     context = "."
     dockerfile = "docker/luanti/Dockerfile"
     target = "luanti-servers"

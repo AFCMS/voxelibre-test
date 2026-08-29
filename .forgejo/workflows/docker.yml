@@ -1,0 +1,77 @@
+---
+name: Docker Images
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: docker-images-publish
+  cancel-in-progress: false
+
+env:
+  REGISTRY: git.minetest.land
+  IMAGE_PREFIX: git.minetest.land/voxelibre/voxelibre-test
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+  DOCKER_BUILD_SUMMARY: "true"
+
+jobs:
+  luanti:
+    name: Luanti Client and Server Images
+    runs-on: docker-24
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Verify Docker access
+        run: docker info
+
+      - name: Log in to the Forgejo container registry
+        uses: https://github.com/docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ vars.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: https://github.com/docker/setup-buildx-action@v4
+
+      - name: Generate client image metadata
+        id: metadata_client
+        uses: https://github.com/docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/luanti-client
+          bake-target: docker-metadata-action-luanti-client
+          labels: |
+            org.opencontainers.image.title=VoxeLibre Test Luanti Clients
+            org.opencontainers.image.description=Run-in-place Luanti client builds for VoxeLibre compatibility testing
+            org.opencontainers.image.authors=AFCMS <afcm.contact@gmail.com>
+            org.opencontainers.image.licenses=LGPL-3.0-or-later
+            org.opencontainers.image.source=https://git.minetest.land/VoxeLibre/voxelibre-test
+
+      - name: Generate server image metadata
+        id: metadata_server
+        uses: https://github.com/docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/luanti-server
+          bake-target: docker-metadata-action-luanti-server
+          labels: |
+            org.opencontainers.image.title=VoxeLibre Test Luanti Servers
+            org.opencontainers.image.description=Run-in-place Luanti dedicated-server builds for VoxeLibre compatibility testing
+            org.opencontainers.image.authors=AFCMS <afcm.contact@gmail.com>
+            org.opencontainers.image.licenses=LGPL-3.0-or-later
+            org.opencontainers.image.source=https://git.minetest.land/VoxeLibre/voxelibre-test
+
+      - name: Build and push Luanti images
+        uses: https://github.com/docker/bake-action@v7
+        with:
+          source: .
+          files: |
+            ./docker-bake.hcl
+            cwd://${{ steps.metadata_client.outputs.bake-file }}
+            cwd://${{ steps.metadata_server.outputs.bake-file }}
+          targets: luanti
+          set: |
+            *.platform=linux/amd64
+          push: true
+          provenance: false
+          sbom: false

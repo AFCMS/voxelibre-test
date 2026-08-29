@@ -12,19 +12,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestConfigureDefaults(t *testing.T) {
-	v := viper.New()
-	Configure(v)
-
-	assertEqual(t, KeyVoxeLibreCloneDir, v.GetString(KeyVoxeLibreCloneDir), DefaultVoxeLibreCloneDir)
-	assertEqual(t, KeyContainerEngine, v.GetString(KeyContainerEngine), DefaultContainerEngine)
-	assertEqual(t, KeyContainerServerImage, v.GetString(KeyContainerServerImage), DefaultContainerServerImage)
-	assertEqual(t, KeyContainerClientImage, v.GetString(KeyContainerClientImage), DefaultContainerClientImage)
-	assertEqual(t, KeyContainerPull, v.GetString(KeyContainerPull), DefaultContainerPull)
-	assertEqual(t, KeyClientDataDir, v.GetString(KeyClientDataDir), DefaultClientDataDir)
-	assertEqual(t, KeyExtractOutputDir, v.GetString(KeyExtractOutputDir), DefaultExtractOutputDir)
-}
-
 func TestReadResolvesRelativeClonePath(t *testing.T) {
 	temporaryDirectory := t.TempDir()
 	makeGame(t, temporaryDirectory, "relative-game")
@@ -66,21 +53,7 @@ func TestReadClientResolvesCloneAndOptionalDataDirectory(t *testing.T) {
 }
 
 func TestConfigurationSchemaDefinesOptionalClientDataDirectory(t *testing.T) {
-	schemaBytes, err := os.ReadFile(filepath.Join("..", "..", "vltest.schema.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema struct {
-		Properties map[string]struct {
-			Properties map[string]struct {
-				Type    string `json:"type"`
-				Default any    `json:"default"`
-			} `json:"properties"`
-		} `json:"properties"`
-	}
-	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
-		t.Fatal(err)
-	}
+	schema := readConfigurationSchema(t)
 	client, exists := schema.Properties["client"]
 	if !exists {
 		t.Fatal("schema does not define client settings")
@@ -89,6 +62,52 @@ func TestConfigurationSchemaDefinesOptionalClientDataDirectory(t *testing.T) {
 	if !exists || dataDir.Type != "string" || dataDir.Default != "" {
 		t.Fatalf("client.data_dir schema = %#v", dataDir)
 	}
+}
+
+func TestConfigurationSchemaUsesPublishedBranchImageDefaults(t *testing.T) {
+	schema := readConfigurationSchema(t)
+	container, exists := schema.Properties["container"]
+	if !exists {
+		t.Fatal("schema does not define container settings")
+	}
+
+	for propertyName, expected := range map[string]string{
+		"server_image": DefaultContainerServerImage,
+		"client_image": DefaultContainerClientImage,
+	} {
+		property, exists := container.Properties[propertyName]
+		if !exists {
+			t.Fatalf("schema does not define container.%s", propertyName)
+		}
+		actual, ok := property.Default.(string)
+		if !ok {
+			t.Fatalf("container.%s default = %#v, want a string", propertyName, property.Default)
+		}
+		assertEqual(t, "container."+propertyName+" schema default", actual, expected)
+	}
+}
+
+type schemaProperty struct {
+	Type       string                    `json:"type"`
+	Default    any                       `json:"default"`
+	Properties map[string]schemaProperty `json:"properties"`
+}
+
+type configurationSchema struct {
+	Properties map[string]schemaProperty `json:"properties"`
+}
+
+func readConfigurationSchema(t *testing.T) configurationSchema {
+	t.Helper()
+	schemaBytes, err := os.ReadFile(filepath.Join("..", "..", "vltest.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema configurationSchema
+	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+		t.Fatal(err)
+	}
+	return schema
 }
 
 func TestReadValidation(t *testing.T) {

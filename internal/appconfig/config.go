@@ -25,8 +25,8 @@ const (
 
 	DefaultVoxeLibreCloneDir    = "./VoxeLibre"
 	DefaultContainerEngine      = "auto"
-	DefaultContainerServerImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-server:latest"
-	DefaultContainerClientImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-client:latest"
+	DefaultContainerServerImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-server:master"
+	DefaultContainerClientImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-client:master"
 	DefaultContainerPull        = "missing"
 	DefaultClientDataDir        = ""
 	DefaultExtractOutputDir     = "./builds"

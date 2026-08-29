@@ -28,7 +28,7 @@ It consists of:
     - [ ] LuaLS
   - [x] Config file system
 - [ ] Distribution
-  - [ ] Docker CI
+  - [x] Docker CI
   - [ ] CLI CI
 - [ ] User + Agent documentation
 
@@ -111,6 +111,13 @@ npx skills add https://git.minetest.land/VoxeLibre/voxelibre-test --skill vltest
 # Update installed skills
 npx skills update
 ```
+
+## Docker images
+
+Manually dispatch the `Docker Images` Forgejo workflow to publish:
+
+- `git.minetest.land/voxelibre/voxelibre-test/luanti-client`
+- `git.minetest.land/voxelibre/voxelibre-test/luanti-server`
 
 ## Build locally
 
