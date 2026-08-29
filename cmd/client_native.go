@@ -31,7 +31,7 @@ temporary. A data directory keeps one reusable, locked profile per version.`,
   vltest client native --version 5.17.0 -- --verbose`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) > 0 && cmd.ArgsLenAtDash() < 0 {
-			return fmt.Errorf("Luanti arguments must follow --")
+			return fmt.Errorf("luanti arguments must follow --")
 		}
 		return nil
 	},
