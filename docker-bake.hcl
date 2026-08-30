@@ -5,12 +5,15 @@ target "docker-metadata-action-luanti-client" {}
 
 target "docker-metadata-action-luanti-server" {}
 
+target "docker-metadata-action-tools" {}
+
 target "vltest" {
     context = "."
     dockerfile = "docker/vltest/Dockerfile"
 }
 
 target "tools" {
+    inherits = ["docker-metadata-action-tools"]
     context = "."
     dockerfile = "docker/tools/Dockerfile"
 }
@@ -31,4 +34,8 @@ target "luanti-server" {
 
 group "luanti" {
     targets = ["luanti-client", "luanti-server"]
+}
+
+group "images" {
+    targets = ["luanti-client", "luanti-server", "tools"]
 }

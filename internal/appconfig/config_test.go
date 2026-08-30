@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
@@ -52,6 +54,24 @@ func TestReadClientResolvesCloneAndOptionalDataDirectory(t *testing.T) {
 	assertEqual(t, KeyClientDataDir, settings.DataDir, "")
 }
 
+func TestReadLintResolvesSettings(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	cloneDirectory := makeGame(t, temporaryDirectory, "game")
+
+	v := viper.New()
+	Configure(v)
+	v.Set(KeyVoxeLibreCloneDir, cloneDirectory)
+	v.Set(KeyContainerToolsImage, "tools:local")
+	v.Set(KeyLintCheckLevel, " INFORMATION ")
+	settings, err := ReadLint(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, KeyVoxeLibreCloneDir, settings.VoxeLibreCloneDir, cloneDirectory)
+	assertEqual(t, KeyContainerToolsImage, settings.Image, "tools:local")
+	assertEqual(t, KeyLintCheckLevel, settings.CheckLevel, "information")
+}
+
 func TestConfigurationSchemaDefinesOptionalClientDataDirectory(t *testing.T) {
 	schema := readConfigurationSchema(t)
 	client, exists := schema.Properties["client"]
@@ -74,6 +94,7 @@ func TestConfigurationSchemaUsesPublishedBranchImageDefaults(t *testing.T) {
 	for propertyName, expected := range map[string]string{
 		"server_image": DefaultContainerServerImage,
 		"client_image": DefaultContainerClientImage,
+		"tools_image":  DefaultContainerToolsImage,
 	} {
 		property, exists := container.Properties[propertyName]
 		if !exists {
@@ -87,9 +108,26 @@ func TestConfigurationSchemaUsesPublishedBranchImageDefaults(t *testing.T) {
 	}
 }
 
+func TestConfigurationSchemaDefinesLintCheckLevel(t *testing.T) {
+	schema := readConfigurationSchema(t)
+	lint, exists := schema.Properties["lint"]
+	if !exists {
+		t.Fatal("schema does not define lint settings")
+	}
+	checkLevel, exists := lint.Properties["check_level"]
+	if !exists || checkLevel.Type != "string" || checkLevel.Default != DefaultLintCheckLevel {
+		t.Fatalf("lint.check_level schema = %#v", checkLevel)
+	}
+	wantLevels := []string{"error", "warning", "information", "hint"}
+	if strings.Join(checkLevel.Enum, ",") != strings.Join(wantLevels, ",") {
+		t.Fatalf("lint.check_level enum = %#v, want %#v", checkLevel.Enum, wantLevels)
+	}
+}
+
 type schemaProperty struct {
 	Type       string                    `json:"type"`
 	Default    any                       `json:"default"`
+	Enum       []string                  `json:"enum"`
 	Properties map[string]schemaProperty `json:"properties"`
 }
 
@@ -178,6 +216,61 @@ func TestImageValidationOnlyRequiresSelectedImage(t *testing.T) {
 		v.Set(KeyContainerClientImage, " ")
 		if _, err := ReadClientImage(v); err == nil {
 			t.Fatal("expected empty client image error")
+		}
+	})
+
+	t.Run("selected tools image must not be empty", func(t *testing.T) {
+		v := viper.New()
+		Configure(v)
+		v.Set(KeyContainerToolsImage, " ")
+		if _, err := ReadToolsImage(v); err == nil {
+			t.Fatal("expected empty tools image error")
+		}
+	})
+}
+
+func TestReadLintRejectsInvalidCheckLevel(t *testing.T) {
+	cloneDirectory := makeGame(t, t.TempDir(), "game")
+	v := viper.New()
+	Configure(v)
+	v.Set(KeyVoxeLibreCloneDir, cloneDirectory)
+	v.Set(KeyLintCheckLevel, "notice")
+	if _, err := ReadLint(v); err == nil {
+		t.Fatal("expected invalid check level error")
+	}
+}
+
+func TestLintCheckLevelConfigurationPrecedence(t *testing.T) {
+	t.Run("environment overrides file", func(t *testing.T) {
+		t.Setenv("VLTEST_LINT_CHECK_LEVEL", "information")
+		v := viper.New()
+		Configure(v)
+		v.SetConfigType("json")
+		if err := v.ReadConfig(strings.NewReader(`{"lint":{"check_level":"error"}}`)); err != nil {
+			t.Fatal(err)
+		}
+		if got := v.GetString(KeyLintCheckLevel); got != "information" {
+			t.Fatalf("check level = %q, want information", got)
+		}
+	})
+
+	t.Run("flag overrides environment and file", func(t *testing.T) {
+		t.Setenv("VLTEST_LINT_CHECK_LEVEL", "information")
+		v := viper.New()
+		Configure(v)
+		v.SetConfigType("json")
+		if err := v.ReadConfig(strings.NewReader(`{"lint":{"check_level":"error"}}`)); err != nil {
+			t.Fatal(err)
+		}
+		flags := pflag.NewFlagSet("lint", pflag.ContinueOnError)
+		if err := AddLintFlags(v, flags); err != nil {
+			t.Fatal(err)
+		}
+		if err := flags.Parse([]string{"--check-level", "hint"}); err != nil {
+			t.Fatal(err)
+		}
+		if got := v.GetString(KeyLintCheckLevel); got != "hint" {
+			t.Fatalf("check level = %q, want hint", got)
 		}
 	})
 }

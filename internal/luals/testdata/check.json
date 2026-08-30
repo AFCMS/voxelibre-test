@@ -1,0 +1,92 @@
+{
+  "file:///path/to/voxelibre/mods/ITEMS/mobs_mc/cow%2Bmooshroom.lua": [
+    {
+      "code": "undefined-field",
+      "message": "Undefined field `copy`.",
+      "range": {
+        "end": {
+          "character": 29,
+          "line": 278
+        },
+        "start": {
+          "character": 25,
+          "line": 278
+        }
+      },
+      "severity": 2,
+      "source": "Lua Diagnostics.",
+      "tags": [
+        1
+      ]
+    },
+    {
+      "code": "duplicate-set-field",
+      "message": "Duplicate field `handle_node_drops`.",
+      "range": {
+        "end": {
+          "character": 35,
+          "line": 394
+        },
+        "start": {
+          "character": 9,
+          "line": 394
+        }
+      },
+      "relatedInformation": [
+        {
+          "location": {
+            "range": {
+              "end": {
+                "character": 36,
+                "line": 1265
+              },
+              "start": {
+                "character": 10,
+                "line": 1265
+              }
+            },
+            "uri": "file:///path/to/voxelibre/mods/HUD/mcl_inventory/creative.lua"
+          },
+          "message": ""
+        }
+      ],
+      "severity": 1,
+      "source": "Lua Diagnostics."
+    }
+  ],
+  "file:///path/to/voxelibre/tools/generate_ingame_credits.lua": [
+    {
+      "code": "luadoc-miss-symbol",
+      "data": "syntax",
+      "message": "`)` expected.",
+      "range": {
+        "end": {
+          "character": 1,
+          "line": 16
+        },
+        "start": {
+          "character": 19,
+          "line": 15
+        }
+      },
+      "severity": 3,
+      "source": "Lua Syntax Check."
+    },
+    {
+      "code": "deprecated",
+      "message": "Deprecated API.",
+      "range": {
+        "end": {
+          "character": 8,
+          "line": 20
+        },
+        "start": {
+          "character": 4,
+          "line": 20
+        }
+      },
+      "severity": 4,
+      "source": "Lua Diagnostics."
+    }
+  ]
+}

@@ -19,17 +19,21 @@ const (
 	KeyContainerEngine      = "container.engine"
 	KeyContainerServerImage = "container.server_image"
 	KeyContainerClientImage = "container.client_image"
+	KeyContainerToolsImage  = "container.tools_image"
 	KeyContainerPull        = "container.pull_policy"
 	KeyClientDataDir        = "client.data_dir"
 	KeyExtractOutputDir     = "extract_builds.output_dir"
+	KeyLintCheckLevel       = "lint.check_level"
 
 	DefaultVoxeLibreCloneDir    = "./VoxeLibre"
 	DefaultContainerEngine      = "auto"
 	DefaultContainerServerImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-server:master"
 	DefaultContainerClientImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-client:master"
+	DefaultContainerToolsImage  = "git.minetest.land/voxelibre/voxelibre-test/tools:master"
 	DefaultContainerPull        = "missing"
 	DefaultClientDataDir        = ""
 	DefaultExtractOutputDir     = "./builds"
+	DefaultLintCheckLevel       = "warning"
 )
 
 const (
@@ -37,9 +41,11 @@ const (
 	FlagEngine        = "container-engine"
 	FlagServerImage   = "server-image"
 	FlagClientImage   = "client-image"
+	FlagToolsImage    = "tools-image"
 	FlagPullPolicy    = "pull-policy"
 	FlagClientDataDir = "data-dir"
 	FlagOutputDir     = "output-dir"
+	FlagCheckLevel    = "check-level"
 	defaultConfigFile = "vltest.json"
 )
 
@@ -65,14 +71,23 @@ type ClientSettings struct {
 	Image             string
 }
 
+type LintSettings struct {
+	VoxeLibreCloneDir string
+	Container         ContainerSettings
+	Image             string
+	CheckLevel        string
+}
+
 func Configure(v *viper.Viper) {
 	v.SetDefault(KeyVoxeLibreCloneDir, DefaultVoxeLibreCloneDir)
 	v.SetDefault(KeyContainerEngine, DefaultContainerEngine)
 	v.SetDefault(KeyContainerServerImage, DefaultContainerServerImage)
 	v.SetDefault(KeyContainerClientImage, DefaultContainerClientImage)
+	v.SetDefault(KeyContainerToolsImage, DefaultContainerToolsImage)
 	v.SetDefault(KeyContainerPull, DefaultContainerPull)
 	v.SetDefault(KeyClientDataDir, DefaultClientDataDir)
 	v.SetDefault(KeyExtractOutputDir, DefaultExtractOutputDir)
+	v.SetDefault(KeyLintCheckLevel, DefaultLintCheckLevel)
 
 	v.SetEnvPrefix("VLTEST")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
@@ -92,6 +107,7 @@ func AddPersistentFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 	flags.String(FlagEngine, DefaultContainerEngine, "container engine to use (auto, docker, or podman)")
 	flags.String(FlagServerImage, DefaultContainerServerImage, "local or remote Luanti server builds image")
 	flags.String(FlagClientImage, DefaultContainerClientImage, "local or remote Luanti client builds image")
+	flags.String(FlagToolsImage, DefaultContainerToolsImage, "local or remote linting tools image")
 	flags.String(FlagPullPolicy, DefaultContainerPull, "image pull policy (always, missing, or never)")
 
 	bindings := map[string]string{
@@ -99,6 +115,7 @@ func AddPersistentFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 		KeyContainerEngine:      FlagEngine,
 		KeyContainerServerImage: FlagServerImage,
 		KeyContainerClientImage: FlagClientImage,
+		KeyContainerToolsImage:  FlagToolsImage,
 		KeyContainerPull:        FlagPullPolicy,
 	}
 	for key, flagName := range bindings {
@@ -107,6 +124,18 @@ func AddPersistentFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 		}
 	}
 
+	return nil
+}
+
+func AddLintFlags(v *viper.Viper, flags *pflag.FlagSet) error {
+	flags.String(
+		FlagCheckLevel,
+		DefaultLintCheckLevel,
+		"minimum LuaLS diagnostic level (error, warning, information, or hint)",
+	)
+	if err := v.BindPFlag(KeyLintCheckLevel, flags.Lookup(FlagCheckLevel)); err != nil {
+		return fmt.Errorf("bind --%s to %s: %w", FlagCheckLevel, KeyLintCheckLevel, err)
+	}
 	return nil
 }
 
@@ -211,6 +240,36 @@ func ReadClient(v *viper.Viper) (ClientSettings, error) {
 	}, nil
 }
 
+func ReadLint(v *viper.Viper) (LintSettings, error) {
+	containerSettings, err := ReadContainer(v)
+	if err != nil {
+		return LintSettings{}, err
+	}
+	image, err := ReadToolsImage(v)
+	if err != nil {
+		return LintSettings{}, err
+	}
+	cloneDirectory, err := ReadVoxeLibreCloneDir(v)
+	if err != nil {
+		return LintSettings{}, err
+	}
+	checkLevel := strings.ToLower(strings.TrimSpace(v.GetString(KeyLintCheckLevel)))
+	switch checkLevel {
+	case "error", "warning", "information", "hint":
+	default:
+		return LintSettings{}, fmt.Errorf(
+			"unsupported LuaLS check level %q: expected error, warning, information, or hint",
+			checkLevel,
+		)
+	}
+	return LintSettings{
+		VoxeLibreCloneDir: cloneDirectory,
+		Container:         containerSettings,
+		Image:             image,
+		CheckLevel:        checkLevel,
+	}, nil
+}
+
 func ReadVoxeLibreCloneDir(v *viper.Viper) (string, error) {
 	cloneDir := strings.TrimSpace(v.GetString(KeyVoxeLibreCloneDir))
 	if cloneDir == "" {
@@ -267,6 +326,10 @@ func ReadServerImage(v *viper.Viper) (string, error) {
 
 func ReadClientImage(v *viper.Viper) (string, error) {
 	return readImage(v, KeyContainerClientImage, "client")
+}
+
+func ReadToolsImage(v *viper.Viper) (string, error) {
+	return readImage(v, KeyContainerToolsImage, "tools")
 }
 
 func readImage(v *viper.Viper, key, kind string) (string, error) {

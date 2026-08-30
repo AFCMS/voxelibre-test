@@ -15,8 +15,8 @@ env:
   DOCKER_BUILD_SUMMARY: "true"
 
 jobs:
-  luanti:
-    name: Luanti Client and Server Images
+  images:
+    name: Luanti and Tools Images
     runs-on: docker-24
     steps:
       - name: Checkout repository
@@ -61,7 +61,20 @@ jobs:
             org.opencontainers.image.licenses=LGPL-3.0-or-later
             org.opencontainers.image.source=https://git.minetest.land/VoxeLibre/voxelibre-test
 
-      - name: Build and push Luanti images
+      - name: Generate tools image metadata
+        id: metadata_tools
+        uses: https://github.com/docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/tools
+          bake-target: docker-metadata-action-tools
+          labels: |
+            org.opencontainers.image.title=VoxeLibre Test Tools
+            org.opencontainers.image.description=Static analysis tools for VoxeLibre testing
+            org.opencontainers.image.authors=AFCMS <afcm.contact@gmail.com>
+            org.opencontainers.image.licenses=LGPL-3.0-or-later
+            org.opencontainers.image.source=https://git.minetest.land/VoxeLibre/voxelibre-test
+
+      - name: Build and push images
         uses: https://github.com/docker/bake-action@v7
         with:
           source: .
@@ -69,7 +82,8 @@ jobs:
             ./docker-bake.hcl
             cwd://${{ steps.metadata_client.outputs.bake-file }}
             cwd://${{ steps.metadata_server.outputs.bake-file }}
-          targets: luanti
+            cwd://${{ steps.metadata_tools.outputs.bake-file }}
+          targets: images
           set: |
             *.platform=linux/amd64
           push: true

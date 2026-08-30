@@ -1,0 +1,19 @@
+{
+  "file:///path/to/voxelibre/mods/example/init.lua": [
+    {
+      "code": "undefined-global",
+      "message": "Undefined global `example`.",
+      "range": {
+        "start": {
+          "line": 4,
+          "character": 2
+        },
+        "end": {
+          "line": 3,
+          "character": 8
+        }
+      },
+      "severity": 2
+    }
+  ]
+}

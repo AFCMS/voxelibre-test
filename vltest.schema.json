@@ -24,7 +24,11 @@
         "engine": {
           "description": "Container engine to use.",
           "type": "string",
-          "enum": ["auto", "docker", "podman"],
+          "enum": [
+            "auto",
+            "docker",
+            "podman"
+          ],
           "default": "auto"
         },
         "server_image": {
@@ -39,10 +43,20 @@
           "pattern": "\\S",
           "default": "git.minetest.land/voxelibre/voxelibre-test/luanti-client:master"
         },
+        "tools_image": {
+          "description": "Local or remote linting tools image.",
+          "type": "string",
+          "pattern": "\\S",
+          "default": "git.minetest.land/voxelibre/voxelibre-test/tools:master"
+        },
         "pull_policy": {
           "description": "Image pull policy.",
           "type": "string",
-          "enum": ["always", "missing", "never"],
+          "enum": [
+            "always",
+            "missing",
+            "never"
+          ],
           "default": "missing"
         }
       }
@@ -55,6 +69,23 @@
           "description": "Persistent directory for version-isolated client profiles. An empty value makes client sessions ephemeral.",
           "type": "string",
           "default": ""
+        }
+      }
+    },
+    "lint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "check_level": {
+          "description": "Minimum LuaLS diagnostic level to report.",
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "warning"
         }
       }
     },

@@ -9,11 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/luanti"
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/workflowcmd"
 )
 
 const (
@@ -224,43 +224,16 @@ func (suite *Suite) runVersion(
 	}
 }
 
-type workflowLogGroup struct {
-	output          io.Writer
-	wroteLogs       bool
-	logsEndWithLine bool
-}
-
-func startWorkflowLogGroup(output io.Writer, title string) (*workflowLogGroup, error) {
-	if err := writeTestOutput(output, "::group::%s\n", escapeWorkflowData(title)); err != nil {
-		return nil, err
-	}
-	return &workflowLogGroup{output: output}, nil
-}
-
-func (group *workflowLogGroup) Write(data []byte) (int, error) {
-	written, err := group.output.Write(data)
-	if written > 0 {
-		group.wroteLogs = true
-		group.logsEndWithLine = data[written-1] == '\n'
-	}
-	return written, err
-}
-
-func (group *workflowLogGroup) End() error {
-	var resultErr error
-	if group.wroteLogs && !group.logsEndWithLine {
-		resultErr = writeTestOutput(group.output, "\n")
-	}
-	return errors.Join(resultErr, writeTestOutput(group.output, "::endgroup::\n"))
+func startWorkflowLogGroup(output io.Writer, title string) (*workflowcmd.Group, error) {
+	return workflowcmd.StartGroup(output, title)
 }
 
 func writeWorkflowError(output io.Writer, title, message string) error {
-	return writeTestOutput(
-		output,
-		"::error title=%s::%s\n",
-		escapeWorkflowProperty(title),
-		escapeWorkflowData(message),
-	)
+	return workflowcmd.WriteAnnotation(output, workflowcmd.Annotation{
+		Level:   workflowcmd.LevelError,
+		Title:   title,
+		Message: message,
+	})
 }
 
 func writeTestOutput(output io.Writer, format string, arguments ...any) error {
@@ -268,26 +241,6 @@ func writeTestOutput(output io.Writer, format string, arguments ...any) error {
 		return fmt.Errorf("write server test output: %w", err)
 	}
 	return nil
-}
-
-func escapeWorkflowData(value string) string {
-	replacer := strings.NewReplacer(
-		"%", "%25",
-		"\r", "%0D",
-		"\n", "%0A",
-	)
-	return replacer.Replace(value)
-}
-
-func escapeWorkflowProperty(value string) string {
-	replacer := strings.NewReplacer(
-		"%", "%25",
-		"\r", "%0D",
-		"\n", "%0A",
-		":", "%3A",
-		",", "%2C",
-	)
-	return replacer.Replace(value)
 }
 
 func channelClosed(channel <-chan struct{}) bool {

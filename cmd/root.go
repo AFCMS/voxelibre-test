@@ -31,7 +31,7 @@ var (
 // rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
 	Use:          "vltest",
-	Short:        "Run compatibility tests and clients for VoxeLibre",
+	Short:        "Test, lint, and run VoxeLibre",
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		if err := appconfig.LoadFile(configuration, configFile); err != nil {

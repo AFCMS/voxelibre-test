@@ -9,10 +9,10 @@ It consists of:
 
 ## Features
 
-- [ ] OCI images
+- [x] OCI images
   - [x] Server builds
   - [x] Client builds
-  - [ ] Tools (LuaLS, etc)
+  - [x] Tools (LuaLS, etc)
 - [ ] CLI
   - [x] Automated Docker server startup test with GitHub Actions compatible annotations
     - [ ] Unittests?
@@ -24,8 +24,8 @@ It consists of:
     - [ ] Docker + native Wayland socket
     - [ ] Docker + native X11 socket
     - [ ] Docker GPU acceleration
-  - [ ] Linting automation (CI + local)
-    - [ ] LuaLS
+  - [x] Linting automation (CI + local)
+    - [x] LuaLS
   - [x] Config file system
 - [ ] Distribution
   - [x] Docker CI
@@ -63,6 +63,25 @@ Test every supported Luanti server against the configured VoxeLibre checkout:
 ```shell
 vltest server unittests
 ```
+
+### Lint VoxeLibre with LuaLS
+
+Run LuaLS and emit GitHub Actions compatible annotations for errors and
+warnings:
+
+```shell
+vltest lint
+```
+
+Only report error-level diagnostics:
+
+```shell
+vltest lint --check-level error
+```
+
+The accepted minimum levels are `error`, `warning`, `information`, and `hint`.
+Information and hint diagnostics are emitted as notices. Error diagnostics make
+the command fail; warnings and notices do not.
 
 ### Launch a native client
 
@@ -118,10 +137,11 @@ Manually dispatch the `Docker Images` Forgejo workflow to publish:
 
 - `git.minetest.land/voxelibre/voxelibre-test/luanti-client`
 - `git.minetest.land/voxelibre/voxelibre-test/luanti-server`
+- `git.minetest.land/voxelibre/voxelibre-test/tools`
 
 ## Build locally
 
-From the repository root, build the CLI and both Luanti images:
+From the repository root, build the CLI and container images:
 
 ```shell
 docker buildx bake \
@@ -135,6 +155,10 @@ docker buildx bake --load \
 docker buildx bake --load \
   --set luanti-client.tags=voxelibre-test-luanti-client:local \
   luanti-client
+
+docker buildx bake --load \
+  --set tools.tags=voxelibre-test-tools:local \
+  tools
 ```
 
 Add the generated `vltest` binary to your `PATH`, then create `vltest.json`:
@@ -148,6 +172,7 @@ Add the generated `vltest` binary to your `PATH`, then create `vltest.json`:
     "engine": "docker",
     "server_image": "voxelibre-test-luanti-server:local",
     "client_image": "voxelibre-test-luanti-client:local",
+    "tools_image": "voxelibre-test-tools:local",
     "pull_policy": "never"
   },
   "client": {
@@ -155,6 +180,9 @@ Add the generated `vltest` binary to your `PATH`, then create `vltest.json`:
   },
   "extract_builds": {
     "output_dir": "./builds"
+  },
+  "lint": {
+    "check_level": "warning"
   }
 }
 ```

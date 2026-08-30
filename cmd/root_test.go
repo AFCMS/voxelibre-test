@@ -26,9 +26,12 @@ type readyEngine struct {
 	createImages []string
 	policy       container.PullPolicy
 	starts       int
+	startSpecs   []container.ContainerSpec
 	copies       int
 	stops        int
 	removes      int
+	lintReport   string
+	lintWaitCode int
 }
 
 func (engine *readyEngine) EnsureImage(_ context.Context, image string, policy container.PullPolicy) error {
@@ -39,10 +42,11 @@ func (engine *readyEngine) EnsureImage(_ context.Context, image string, policy c
 	return nil
 }
 
-func (engine *readyEngine) Start(context.Context, container.ContainerSpec) (string, error) {
+func (engine *readyEngine) Start(_ context.Context, spec container.ContainerSpec) (string, error) {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	engine.starts++
+	engine.startSpecs = append(engine.startSpecs, spec)
 	return "container", nil
 }
 
@@ -53,10 +57,14 @@ func (engine *readyEngine) Create(_ context.Context, image string) (string, erro
 	return "container", nil
 }
 
-func (engine *readyEngine) CopyFrom(_ context.Context, _, _, destinationPath string) error {
+func (engine *readyEngine) CopyFrom(_ context.Context, _, sourcePath, destinationPath string) error {
 	engine.mu.Lock()
 	engine.copies++
+	lintReport := engine.lintReport
 	engine.mu.Unlock()
+	if sourcePath == "/tmp/log/check.json" {
+		return os.WriteFile(filepath.Join(destinationPath, "check.json"), []byte(lintReport), 0o600)
+	}
 	if err := os.MkdirAll(filepath.Join(destinationPath, "bin"), 0o755); err != nil {
 		return err
 	}
@@ -71,7 +79,14 @@ func (*readyEngine) IsRunning(context.Context, string) (bool, error) {
 	return true, nil
 }
 
-func (*readyEngine) Wait(ctx context.Context, _ string) (int, error) {
+func (engine *readyEngine) Wait(ctx context.Context, _ string) (int, error) {
+	engine.mu.Lock()
+	lintReport := engine.lintReport
+	waitCode := engine.lintWaitCode
+	engine.mu.Unlock()
+	if lintReport != "" {
+		return waitCode, nil
+	}
 	<-ctx.Done()
 	return 0, ctx.Err()
 }
@@ -176,13 +191,98 @@ func TestExtractBuildsRegistrationAndFlags(t *testing.T) {
 	if flag := extractBuildsCmd.Flags().Lookup("output-dir"); flag.DefValue != "./builds" {
 		t.Fatalf("output-dir default = %q, want ./builds", flag.DefValue)
 	}
-	for _, flagName := range []string{"server-image", "client-image"} {
+	for _, flagName := range []string{"server-image", "client-image", "tools-image"} {
 		if rootCmd.PersistentFlags().Lookup(flagName) == nil {
 			t.Fatalf("root --%s flag is not registered", flagName)
 		}
 	}
 	if rootCmd.PersistentFlags().Lookup("image") != nil {
 		t.Fatal("legacy root --image flag is still registered")
+	}
+}
+
+func TestLintRegistrationAndFlags(t *testing.T) {
+	if lintCmd.Parent() != rootCmd {
+		t.Fatal("lint command is not registered on rootCmd")
+	}
+	flag := lintCmd.Flags().Lookup("check-level")
+	if flag == nil {
+		t.Fatal("lint --check-level flag is not registered")
+	}
+	if flag.DefValue != "warning" {
+		t.Fatalf("check-level default = %q, want warning", flag.DefValue)
+	}
+}
+
+func TestLintRejectsArguments(t *testing.T) {
+	rootCmd.SetArgs([]string{"lint", "unexpected"})
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+	if err := rootCmd.ExecuteContext(context.Background()); err == nil {
+		t.Fatal("expected positional argument error")
+	}
+}
+
+func TestLintCommandUsesConfiguredToolsImageAndLevel(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	cloneDirectory := filepath.Join(temporaryDirectory, "VoxeLibre")
+	if err := os.Mkdir(cloneDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cloneDirectory, "game.conf"), []byte("title = VoxeLibre\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(temporaryDirectory, "empty.json")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := &readyEngine{
+		lintReport: `{"file:///path/to/voxelibre/init.lua":[{
+  "code":"undefined-global","message":"Undefined global.","severity":2,
+  "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}
+}]}`,
+		lintWaitCode: 1,
+	}
+	selectedEngine := ""
+	previousDependencies := commandDependencies
+	commandDependencies = dependencies{
+		newEngine: func(_ context.Context, preference string) (container.Runtime, error) {
+			selectedEngine = preference
+			return engine, nil
+		},
+	}
+	t.Cleanup(func() {
+		commandDependencies = previousDependencies
+		rootCmd.SetArgs(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+
+	var output bytes.Buffer
+	rootCmd.SetOut(&output)
+	rootCmd.SetErr(&output)
+	rootCmd.SetArgs([]string{
+		"--config", configPath,
+		"--voxelibre-dir", cloneDirectory,
+		"--container-engine", "podman",
+		"--tools-image", "tools:local",
+		"--pull-policy", "never",
+		"lint", "--check-level", "information",
+	})
+	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if selectedEngine != "podman" {
+		t.Fatalf("selected engine = %q", selectedEngine)
+	}
+	if len(engine.ensureImages) != 1 || engine.ensureImages[0] != "tools:local" || engine.policy != container.PullNever {
+		t.Fatalf("image setup = %#v/%q", engine.ensureImages, engine.policy)
+	}
+	if len(engine.startSpecs) != 1 || !strings.Contains(strings.Join(engine.startSpecs[0].Arguments, " "), "--checklevel Information") {
+		t.Fatalf("start specs = %#v", engine.startSpecs)
+	}
+	if !strings.Contains(output.String(), "::warning ") || !strings.Contains(output.String(), "LuaLS: 0 errors, 1 warnings") {
+		t.Fatalf("output = %q", output.String())
 	}
 }
 

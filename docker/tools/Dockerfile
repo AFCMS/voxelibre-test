@@ -7,9 +7,9 @@
 # - https://github.com/microsoft/vscode-containers/issues/297
 # - https://github.com/rcjsuen/dockerfile-utils/issues/131
 
-FROM scratch AS base
+FROM gcr.io/distroless/base-nossl-debian13:nonroot AS base
 
-WORKDIR /
+WORKDIR /tmp
 
 ENV LUALS_VERSION=3.19.1
 ENV LUALS_CHECKSUM=sha256:e9235d2d72ef55bc41cf8c99cda2ed64777682024b4bb81f5dea425060c5cbb8
