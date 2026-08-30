@@ -10,6 +10,11 @@ target "vltest" {
     dockerfile = "docker/vltest/Dockerfile"
 }
 
+target "tools" {
+    context = "."
+    dockerfile = "docker/tools/Dockerfile"
+}
+
 target "luanti-client" {
     inherits = ["docker-metadata-action-luanti-client"]
     context = "."
