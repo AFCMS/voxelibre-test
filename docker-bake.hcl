@@ -7,7 +7,10 @@ target "docker-metadata-action-luanti-server" {}
 
 target "docker-metadata-action-tools" {}
 
+target "docker-metadata-action-vltest" {}
+
 target "vltest" {
+    inherits = ["docker-metadata-action-vltest"]
     context = "."
     dockerfile = "docker/vltest/Dockerfile"
 }

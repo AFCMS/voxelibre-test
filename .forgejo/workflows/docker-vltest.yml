@@ -1,0 +1,76 @@
+---
+name: Docker vltest
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "*"
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: docker-vltest-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: git.minetest.land
+  IMAGE_PREFIX: git.minetest.land/voxelibre/voxelibre-test
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+  DOCKER_BUILD_SUMMARY: "true"
+
+jobs:
+  vltest:
+    name: vltest Image
+    runs-on: docker-24
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Verify Docker access
+        run: docker info
+
+      - name: Log in to the Forgejo container registry
+        if: github.event_name == 'push'
+        uses: https://github.com/docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ vars.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: https://github.com/docker/setup-buildx-action@v4
+
+      - name: Generate vltest image metadata
+        id: metadata_vltest
+        uses: https://github.com/docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/vltest
+          bake-target: docker-metadata-action-vltest
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=VoxeLibre Test CLI
+            org.opencontainers.image.description=CLI for VoxeLibre compatibility testing
+            org.opencontainers.image.authors=AFCMS <afcm.contact@gmail.com>
+            org.opencontainers.image.licenses=LGPL-3.0-or-later
+            org.opencontainers.image.source=https://git.minetest.land/VoxeLibre/voxelibre-test
+
+      - name: Build vltest image
+        uses: https://github.com/docker/bake-action@v7
+        with:
+          source: .
+          files: |
+            ./docker-bake.hcl
+            cwd://${{ steps.metadata_vltest.outputs.bake-file }}
+          targets: vltest
+          set: |
+            *.platform=linux/amd64
+          push: ${{ github.event_name == 'push' }}
+          provenance: false
+          sbom: false
