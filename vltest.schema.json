@@ -10,10 +10,10 @@
       "additionalProperties": false,
       "properties": {
         "clone_dir": {
-          "description": "Path to the VoxeLibre clone.",
+          "description": "Path to the VoxeLibre clone. Defaults to the current working directory.",
           "type": "string",
           "pattern": "\\S",
-          "default": "./VoxeLibre"
+          "default": "."
         }
       }
     },

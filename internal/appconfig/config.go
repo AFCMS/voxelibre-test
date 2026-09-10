@@ -25,7 +25,7 @@ const (
 	KeyExtractOutputDir     = "extract_builds.output_dir"
 	KeyLintCheckLevel       = "lint.check_level"
 
-	DefaultVoxeLibreCloneDir    = "./VoxeLibre"
+	DefaultVoxeLibreCloneDir    = "."
 	DefaultContainerEngine      = "auto"
 	DefaultContainerServerImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-server:master"
 	DefaultContainerClientImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-client:master"
