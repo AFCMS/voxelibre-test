@@ -60,6 +60,15 @@ func TestParseReportAcceptsEmptyObject(t *testing.T) {
 	}
 }
 
+func TestParseReportAcceptsEmptyLuaLSArray(t *testing.T) {
+	for _, input := range []string{"[]", " [ \n ] \n"} {
+		diagnostics, err := ParseReport(strings.NewReader(input))
+		if err != nil || len(diagnostics) != 0 {
+			t.Fatalf("ParseReport(%q) = %v, %v", input, diagnostics, err)
+		}
+	}
+}
+
 func TestParseReportRejectsMalformedFixture(t *testing.T) {
 	file, err := os.Open(filepath.Join("testdata", "malformed.json"))
 	if err != nil {
@@ -81,6 +90,8 @@ func TestParseReportRejectsInvalidStructures(t *testing.T) {
 		{name: "missing severity", json: `{"file:///path/to/voxelibre/a.lua":[{"code":"x","message":"m","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}]}`, want: "severity is required"},
 		{name: "unknown severity", json: `{"file:///path/to/voxelibre/a.lua":[{"code":"x","message":"m","severity":5,"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}]}`, want: "unsupported severity"},
 		{name: "trailing value", json: `{} {}`, want: "trailing JSON value"},
+		{name: "array trailing value", json: `[] {}`, want: "trailing JSON value"},
+		{name: "nonempty array", json: `[{}]`, want: "decode LuaLS report"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

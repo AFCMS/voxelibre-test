@@ -58,7 +58,7 @@ overwritten or merged.`,
 		if err != nil {
 			return fmt.Errorf("validate pull policy: %w", err)
 		}
-		engine, err := commandDependencies.newEngine(cmd.Context(), containerSettings.Engine)
+		engine, err := commandDependencies.newEngine(cmd.Context(), containerSettings)
 		if err != nil {
 			return err
 		}

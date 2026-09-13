@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,13 +34,24 @@ func (osCommandRunner) Run(ctx context.Context, executable string, arguments []s
 type pathFinder func(string) (string, error)
 
 type CLIEngine struct {
-	name       string
-	executable string
-	runner     commandRunner
+	name               string
+	executable         string
+	runner             commandRunner
+	workspaceContainer string
+	detectWorkspace    func() (string, error)
+	workspaceMu        sync.Mutex
+	workspaceLoaded    bool
+	workspaceMounts    []workspaceMount
 }
 
-func NewCLIEngine(ctx context.Context, preference string) (*CLIEngine, error) {
-	return selectCLIEngine(ctx, preference, osCommandRunner{}, exec.LookPath)
+func NewCLIEngine(ctx context.Context, preference, workspaceContainer string) (*CLIEngine, error) {
+	engine, err := selectCLIEngine(ctx, preference, osCommandRunner{}, exec.LookPath)
+	if err != nil {
+		return nil, err
+	}
+	engine.workspaceContainer = workspaceContainer
+	engine.detectWorkspace = detectWorkspaceContainer
+	return engine, nil
 }
 
 func selectCLIEngine(ctx context.Context, preference string, runner commandRunner, find pathFinder) (*CLIEngine, error) {
@@ -107,11 +119,21 @@ func (engine *CLIEngine) pull(ctx context.Context, image string) error {
 }
 
 func (engine *CLIEngine) Start(ctx context.Context, spec ContainerSpec) (string, error) {
-	arguments := engine.runArguments(spec)
+	resolved, err := engine.resolveWorkspace(ctx, spec)
+	if err != nil {
+		return "", err
+	}
+	arguments := engine.runArguments(resolved)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	if err := engine.runner.Run(ctx, engine.executable, arguments, &stdout, &stderr); err != nil {
-		return "", commandError(engine.name+" run", err, stderr.String())
+		runErr := commandError(engine.name+" run", err, stderr.String())
+		for _, mount := range resolved.VolumeMounts {
+			if mount.Subpath != "" {
+				return "", fmt.Errorf("start container with volume subdirectory (requires engine support for volume subpaths): %w", runErr)
+			}
+		}
+		return "", runErr
 	}
 	containerID := strings.TrimSpace(stdout.String())
 	if containerID == "" {
@@ -150,7 +172,7 @@ func (engine *CLIEngine) CopyFrom(
 
 func (engine *CLIEngine) runArguments(spec ContainerSpec) []string {
 	arguments := []string{"run", "--detach", "--pull=never"}
-	if engine.name == "podman" && len(spec.BindMounts) > 0 {
+	if engine.name == "podman" && (len(spec.BindMounts) > 0 || len(spec.VolumeMounts) > 0) {
 		arguments = append(arguments, "--security-opt", "label=disable")
 	}
 	for _, target := range spec.AnonymousVolumes {
@@ -158,6 +180,20 @@ func (engine *CLIEngine) runArguments(spec ContainerSpec) []string {
 	}
 	for _, mount := range spec.BindMounts {
 		value := "type=bind,src=" + mount.Source + ",dst=" + mount.Target
+		if mount.ReadOnly {
+			value += ",readonly"
+		}
+		arguments = append(arguments, "--mount", value)
+	}
+	for _, mount := range spec.VolumeMounts {
+		value := "type=volume,src=" + mount.Source + ",dst=" + mount.Target
+		if mount.Subpath != "" {
+			option := "volume-subpath"
+			if engine.name == "podman" {
+				option = "subpath"
+			}
+			value += "," + option + "=" + mount.Subpath
+		}
 		if mount.ReadOnly {
 			value += ",readonly"
 		}

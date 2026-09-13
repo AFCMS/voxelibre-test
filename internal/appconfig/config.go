@@ -17,6 +17,7 @@ import (
 const (
 	KeyVoxeLibreCloneDir    = "voxelibre.clone_dir"
 	KeyContainerEngine      = "container.engine"
+	KeyWorkspaceContainer   = "container.workspace_container"
 	KeyContainerServerImage = "container.server_image"
 	KeyContainerClientImage = "container.client_image"
 	KeyContainerToolsImage  = "container.tools_image"
@@ -27,6 +28,7 @@ const (
 
 	DefaultVoxeLibreCloneDir    = "."
 	DefaultContainerEngine      = "auto"
+	DefaultWorkspaceContainer   = "auto"
 	DefaultContainerServerImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-server:master"
 	DefaultContainerClientImage = "git.minetest.land/voxelibre/voxelibre-test/luanti-client:master"
 	DefaultContainerToolsImage  = "git.minetest.land/voxelibre/voxelibre-test/tools:master"
@@ -37,21 +39,23 @@ const (
 )
 
 const (
-	FlagVoxeLibreDir  = "voxelibre-dir"
-	FlagEngine        = "container-engine"
-	FlagServerImage   = "server-image"
-	FlagClientImage   = "client-image"
-	FlagToolsImage    = "tools-image"
-	FlagPullPolicy    = "pull-policy"
-	FlagClientDataDir = "data-dir"
-	FlagOutputDir     = "output-dir"
-	FlagCheckLevel    = "check-level"
-	defaultConfigFile = "vltest.json"
+	FlagVoxeLibreDir       = "voxelibre-dir"
+	FlagEngine             = "container-engine"
+	FlagWorkspaceContainer = "workspace-container"
+	FlagServerImage        = "server-image"
+	FlagClientImage        = "client-image"
+	FlagToolsImage         = "tools-image"
+	FlagPullPolicy         = "pull-policy"
+	FlagClientDataDir      = "data-dir"
+	FlagOutputDir          = "output-dir"
+	FlagCheckLevel         = "check-level"
+	defaultConfigFile      = "vltest.json"
 )
 
 type ContainerSettings struct {
-	Engine     string
-	PullPolicy string
+	Engine             string
+	WorkspaceContainer string
+	PullPolicy         string
 }
 
 type ExtractBuildsSettings struct {
@@ -81,6 +85,7 @@ type LintSettings struct {
 func Configure(v *viper.Viper) {
 	v.SetDefault(KeyVoxeLibreCloneDir, DefaultVoxeLibreCloneDir)
 	v.SetDefault(KeyContainerEngine, DefaultContainerEngine)
+	v.SetDefault(KeyWorkspaceContainer, DefaultWorkspaceContainer)
 	v.SetDefault(KeyContainerServerImage, DefaultContainerServerImage)
 	v.SetDefault(KeyContainerClientImage, DefaultContainerClientImage)
 	v.SetDefault(KeyContainerToolsImage, DefaultContainerToolsImage)
@@ -105,6 +110,7 @@ func AddClientFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 func AddPersistentFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 	flags.String(FlagVoxeLibreDir, DefaultVoxeLibreCloneDir, "path to the VoxeLibre clone")
 	flags.String(FlagEngine, DefaultContainerEngine, "container engine to use (auto, docker, or podman)")
+	flags.String(FlagWorkspaceContainer, DefaultWorkspaceContainer, "container holding the checkout (auto, none, or container ID/name)")
 	flags.String(FlagServerImage, DefaultContainerServerImage, "local or remote Luanti server builds image")
 	flags.String(FlagClientImage, DefaultContainerClientImage, "local or remote Luanti client builds image")
 	flags.String(FlagToolsImage, DefaultContainerToolsImage, "local or remote linting tools image")
@@ -113,6 +119,7 @@ func AddPersistentFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 	bindings := map[string]string{
 		KeyVoxeLibreCloneDir:    FlagVoxeLibreDir,
 		KeyContainerEngine:      FlagEngine,
+		KeyWorkspaceContainer:   FlagWorkspaceContainer,
 		KeyContainerServerImage: FlagServerImage,
 		KeyContainerClientImage: FlagClientImage,
 		KeyContainerToolsImage:  FlagToolsImage,
@@ -303,8 +310,13 @@ func ReadVoxeLibreCloneDir(v *viper.Viper) (string, error) {
 
 func ReadContainer(v *viper.Viper) (ContainerSettings, error) {
 	settings := ContainerSettings{
-		Engine:     strings.ToLower(strings.TrimSpace(v.GetString(KeyContainerEngine))),
-		PullPolicy: strings.ToLower(strings.TrimSpace(v.GetString(KeyContainerPull))),
+		Engine:             strings.ToLower(strings.TrimSpace(v.GetString(KeyContainerEngine))),
+		WorkspaceContainer: strings.TrimSpace(v.GetString(KeyWorkspaceContainer)),
+		PullPolicy:         strings.ToLower(strings.TrimSpace(v.GetString(KeyContainerPull))),
+	}
+
+	if settings.WorkspaceContainer == "" || strings.HasPrefix(settings.WorkspaceContainer, "-") || strings.ContainsAny(settings.WorkspaceContainer, " \t\r\n") {
+		return ContainerSettings{}, errors.New("workspace container must be auto, none, or a container ID/name")
 	}
 
 	switch settings.Engine {

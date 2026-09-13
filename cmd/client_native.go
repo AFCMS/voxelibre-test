@@ -54,7 +54,7 @@ temporary. A data directory keeps one reusable, locked profile per version.`,
 		if err != nil {
 			return fmt.Errorf("validate pull policy: %w", err)
 		}
-		engine, err := commandDependencies.newEngine(cmd.Context(), settings.Container.Engine)
+		engine, err := commandDependencies.newEngine(cmd.Context(), settings.Container)
 		if err != nil {
 			return err
 		}

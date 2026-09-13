@@ -275,6 +275,49 @@ func TestLintCheckLevelConfigurationPrecedence(t *testing.T) {
 	})
 }
 
+func TestWorkspaceContainerConfiguration(t *testing.T) {
+	v := viper.New()
+	Configure(v)
+	flags := pflag.NewFlagSet("workspace", pflag.ContinueOnError)
+	if err := AddPersistentFlags(v, flags); err != nil {
+		t.Fatal(err)
+	}
+	check := func(want string) {
+		t.Helper()
+		settings, err := ReadContainer(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, KeyWorkspaceContainer, settings.WorkspaceContainer, want)
+	}
+	check("auto")
+	v.SetConfigType("json")
+	if err := v.ReadConfig(strings.NewReader(`{"container":{"workspace_container":"file-job"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	check("file-job")
+	t.Setenv("VLTEST_CONTAINER_WORKSPACE_CONTAINER", "env-job")
+	check("env-job")
+	if err := flags.Parse([]string{"--workspace-container", "Custom-Job"}); err != nil {
+		t.Fatal(err)
+	}
+	check("Custom-Job")
+	if err := flags.Parse([]string{"--workspace-container", "none"}); err != nil {
+		t.Fatal(err)
+	}
+	check("none")
+	for _, invalid := range []string{"", " ", "--all", "job name", "job\nname"} {
+		v.Set(KeyWorkspaceContainer, invalid)
+		if _, err := ReadContainer(v); err == nil {
+			t.Fatalf("accepted workspace container %q", invalid)
+		}
+	}
+	property := readConfigurationSchema(t).Properties["container"].Properties["workspace_container"]
+	if property.Type != "string" || property.Default != DefaultWorkspaceContainer {
+		t.Fatalf("schema = %#v", property)
+	}
+}
+
 func makeGame(t *testing.T, parent, name string) string {
 	t.Helper()
 	directory := filepath.Join(parent, name)

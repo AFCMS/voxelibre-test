@@ -111,9 +111,19 @@ type rawDiagnostic struct {
 
 func ParseReport(input io.Reader) ([]Diagnostic, error) {
 	decoder := json.NewDecoder(input)
-	var report map[string][]rawDiagnostic
-	if err := decoder.Decode(&report); err != nil {
+	var document json.RawMessage
+	if err := decoder.Decode(&document); err != nil {
 		return nil, fmt.Errorf("decode LuaLS report: %w", err)
+	}
+	var report map[string][]rawDiagnostic
+	if err := json.Unmarshal(document, &report); err != nil {
+		// LuaLS serializes its empty results table as [] rather than {}.
+		// Only the empty array is valid; populated reports are URI-keyed objects.
+		var entries []json.RawMessage
+		if arrayErr := json.Unmarshal(document, &entries); arrayErr != nil || len(entries) != 0 {
+			return nil, fmt.Errorf("decode LuaLS report: %w", err)
+		}
+		report = make(map[string][]rawDiagnostic)
 	}
 	if report == nil {
 		return nil, errors.New("decode LuaLS report: expected a JSON object")

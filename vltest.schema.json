@@ -31,6 +31,12 @@
           ],
           "default": "auto"
         },
+        "workspace_container": {
+          "description": "Container holding the checkout: auto detects a containerized CLI, none uses daemon-side bind paths, or specify a container ID/name.",
+          "type": "string",
+          "pattern": "^[^-\\s][^\\s]*$",
+          "default": "auto"
+        },
         "server_image": {
           "description": "Local or remote Luanti server builds image.",
           "type": "string",

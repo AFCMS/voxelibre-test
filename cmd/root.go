@@ -18,7 +18,7 @@ import (
 )
 
 type dependencies struct {
-	newEngine  func(context.Context, string) (container.Runtime, error)
+	newEngine  func(context.Context, appconfig.ContainerSettings) (container.Runtime, error)
 	runProcess clientrun.ProcessRunner
 }
 
@@ -52,8 +52,8 @@ var rootCmd = &cobra.Command{
 
 func defaultDependencies() dependencies {
 	return dependencies{
-		newEngine: func(ctx context.Context, preference string) (container.Runtime, error) {
-			return container.NewCLIEngine(ctx, preference)
+		newEngine: func(ctx context.Context, settings appconfig.ContainerSettings) (container.Runtime, error) {
+			return container.NewCLIEngine(ctx, settings.Engine, settings.WorkspaceContainer)
 		},
 		runProcess: clientrun.ExecProcessRunner{},
 	}

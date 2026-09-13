@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"git.minetest.land/VoxeLibre/voxelibre-test/internal/appconfig"
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/clientrun"
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/luanti"
@@ -123,8 +124,8 @@ func TestRootCommandWiresFlagsThroughViper(t *testing.T) {
 	selectedEngine := ""
 	previousDependencies := commandDependencies
 	commandDependencies = dependencies{
-		newEngine: func(_ context.Context, preference string) (container.Runtime, error) {
-			selectedEngine = preference
+		newEngine: func(_ context.Context, settings appconfig.ContainerSettings) (container.Runtime, error) {
+			selectedEngine = settings.Engine
 			return engine, nil
 		},
 	}
@@ -244,10 +245,12 @@ func TestLintCommandUsesConfiguredToolsImageAndLevel(t *testing.T) {
 		lintWaitCode: 1,
 	}
 	selectedEngine := ""
+	selectedWorkspace := ""
 	previousDependencies := commandDependencies
 	commandDependencies = dependencies{
-		newEngine: func(_ context.Context, preference string) (container.Runtime, error) {
-			selectedEngine = preference
+		newEngine: func(_ context.Context, settings appconfig.ContainerSettings) (container.Runtime, error) {
+			selectedEngine = settings.Engine
+			selectedWorkspace = settings.WorkspaceContainer
 			return engine, nil
 		},
 	}
@@ -265,12 +268,16 @@ func TestLintCommandUsesConfiguredToolsImageAndLevel(t *testing.T) {
 		"--config", configPath,
 		"--voxelibre-dir", cloneDirectory,
 		"--container-engine", "podman",
+		"--workspace-container", "forgejo-job",
 		"--tools-image", "tools:local",
 		"--pull-policy", "never",
 		"lint", "--check-level", "information",
 	})
 	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if selectedWorkspace != "forgejo-job" {
+		t.Fatalf("workspace container = %q", selectedWorkspace)
 	}
 	if selectedEngine != "podman" {
 		t.Fatalf("selected engine = %q", selectedEngine)
@@ -296,7 +303,7 @@ func TestExtractBuildsCommandExportsWithoutVoxeLibreClone(t *testing.T) {
 	engine := &readyEngine{}
 	previousDependencies := commandDependencies
 	commandDependencies = dependencies{
-		newEngine: func(context.Context, string) (container.Runtime, error) {
+		newEngine: func(context.Context, appconfig.ContainerSettings) (container.Runtime, error) {
 			return engine, nil
 		},
 	}
@@ -380,8 +387,8 @@ func TestClientNativeCommandLaunchesSelectedBuild(t *testing.T) {
 	var processSpec clientrun.ProcessSpec
 	previousDependencies := commandDependencies
 	commandDependencies = dependencies{
-		newEngine: func(_ context.Context, preference string) (container.Runtime, error) {
-			selectedEngine = preference
+		newEngine: func(_ context.Context, settings appconfig.ContainerSettings) (container.Runtime, error) {
+			selectedEngine = settings.Engine
 			return engine, nil
 		},
 		runProcess: clientrun.ProcessRunnerFunc(func(_ context.Context, spec clientrun.ProcessSpec) error {

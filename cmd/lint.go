@@ -30,7 +30,7 @@ var lintCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("validate LuaLS check level: %w", err)
 		}
-		engine, err := commandDependencies.newEngine(cmd.Context(), settings.Container.Engine)
+		engine, err := commandDependencies.newEngine(cmd.Context(), settings.Container)
 		if err != nil {
 			return err
 		}

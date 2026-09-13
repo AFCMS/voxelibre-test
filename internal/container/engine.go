@@ -33,11 +33,20 @@ type BindMount struct {
 	ReadOnly bool
 }
 
+// VolumeMount reuses an existing volume, whose lifecycle belongs to its owner.
+type VolumeMount struct {
+	Source   string
+	Target   string
+	Subpath  string
+	ReadOnly bool
+}
+
 type ContainerSpec struct {
 	Image            string
 	Entrypoint       string
 	Arguments        []string
 	BindMounts       []BindMount
+	VolumeMounts     []VolumeMount
 	AnonymousVolumes []string
 }
 

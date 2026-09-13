@@ -50,9 +50,44 @@ By default, `vltest` searches for `vltest.json` in the working directory and
 the user configuration directory. Use `--config` to select a specific file.
 See [`vltest.schema.json`](vltest.schema.json) for every setting.
 
+The VoxeLibre clone directory defaults to the current working directory (`.`).
+Run commands from your VoxeLibre checkout, or set `--voxelibre-dir` or
+`voxelibre.clone_dir` to use another location.
+
 Configuration precedence is flags, `VLTEST_` environment variables, the
 configuration file, then defaults. The default `auto` engine tries Docker and
 then Podman.
+
+### Running inside CI job containers
+
+`vltest lint` and `vltest server unittests` can reuse the checkout mounted
+inside a Forgejo Actions job container. With the default
+`container.workspace_container: "auto"`, `vltest` detects Docker/Podman container
+marker files and inspects the container identified by its hostname using the
+selected engine. The job and test containers must use the same daemon.
+
+Workspace volumes are reused by name and mounted read-only; bind-mounted
+workspaces are translated to their daemon-side paths. The local checkout path
+continues to be used for validation and diagnostic annotations. The runner's
+workspace volume is never removed by `vltest` cleanup.
+
+If the job uses a custom hostname, select its actual container ID or name:
+
+```shell
+vltest --workspace-container my-job lint
+```
+
+The equivalent environment variable is `VLTEST_CONTAINER_WORKSPACE_CONTAINER`.
+Set `--workspace-container none` to use checkout paths directly on the daemon,
+including when container detection is inappropriate for your setup. On an
+ordinary host, `auto` leaves bind mounts unchanged. Build extraction and native
+client commands do not inspect workspace mounts.
+
+Checkouts below a volume root require volume subdirectory support in both the
+engine and CLI (Docker 26+, or a Podman release supporting `--mount ... subpath`).
+An unsupported engine reports a volume subdirectory startup error. Checkouts in
+the job container's writable layer, unsupported mount types such as tmpfs, and
+checkouts containing additional nested mounts are rejected with an explanation.
 
 ## Typical use
 
