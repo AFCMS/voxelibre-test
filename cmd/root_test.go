@@ -73,11 +73,13 @@ func (engine *readyEngine) CopyFrom(_ context.Context, _, sourcePath, destinatio
 }
 
 func (*readyEngine) ReadLogs(context.Context, string) ([]byte, error) {
-	return []byte("Server for gameid=\"voxelibre\" listening on [::]:30000.\n"), nil
+	return []byte(`[vl_unittests] {"event":"test","mod":"example","name":"test","status":"pass","duration":0}
+[vl_unittests] {"event":"summary","total":1,"passed":1,"failed":0}
+`), nil
 }
 
 func (*readyEngine) IsRunning(context.Context, string) (bool, error) {
-	return true, nil
+	return false, nil
 }
 
 func (engine *readyEngine) Wait(ctx context.Context, _ string) (int, error) {
@@ -88,8 +90,7 @@ func (engine *readyEngine) Wait(ctx context.Context, _ string) (int, error) {
 	if lintReport != "" {
 		return waitCode, nil
 	}
-	<-ctx.Done()
-	return 0, ctx.Err()
+	return 0, nil
 }
 
 func (engine *readyEngine) Stop(context.Context, string, time.Duration) error {
@@ -158,10 +159,10 @@ func TestRootCommandWiresFlagsThroughViper(t *testing.T) {
 		t.Fatalf("image setup = %#v/%q", engine.ensureImages, engine.policy)
 	}
 	wantTests := len(luanti.SupportedServerVersions())
-	if engine.starts != wantTests || engine.stops != wantTests || engine.removes != wantTests {
+	if engine.starts != wantTests || engine.stops != 0 || engine.removes != wantTests {
 		t.Fatalf("lifecycle counts: starts=%d stops=%d removes=%d", engine.starts, engine.stops, engine.removes)
 	}
-	if !strings.Contains(output.String(), fmt.Sprintf("PASS  all %d server startup tests", wantTests)) {
+	if !strings.Contains(output.String(), fmt.Sprintf("PASS  all %d server unit-test suites", wantTests)) {
 		t.Fatalf("output = %q", output.String())
 	}
 }

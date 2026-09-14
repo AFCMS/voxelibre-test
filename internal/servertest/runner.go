@@ -4,7 +4,6 @@
 package servertest
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -17,11 +16,10 @@ import (
 )
 
 const (
-	startupTimeout = 15 * time.Second
+	suiteTimeout   = 60 * time.Second
 	cleanupTimeout = 10 * time.Second
 	stopTimeout    = 5 * time.Second
 	pollInterval   = 250 * time.Millisecond
-	readinessText  = `Server for gameid="voxelibre" listening on`
 )
 
 type Suite struct {
@@ -65,35 +63,34 @@ func (suite *Suite) Run(ctx context.Context) error {
 	var failures []error
 	completed := 0
 	for _, version := range suite.versions {
-		if err := ctx.Err(); err != nil {
-			failures = append(failures, fmt.Errorf("startup suite canceled: %w", err))
+		if ctx.Err() != nil {
 			break
 		}
 
-		if err := writeTestOutput(suite.output, "START Luanti %s\n", version.Version); err != nil {
-			return err
-		}
 		logOutput, err := startWorkflowLogGroup(suite.output, fmt.Sprintf("Luanti %s server logs", version.Version))
 		if err != nil {
 			return err
 		}
-		err = suite.runVersion(ctx, version, logOutput)
+		results, runErr := suite.runVersion(ctx, version, logOutput)
 		if endErr := logOutput.End(); endErr != nil {
-			return errors.Join(err, endErr)
+			return errors.Join(runErr, endErr)
 		}
 		completed++
-		if err != nil {
-			if writeErr := writeTestOutput(suite.output, "FAIL  Luanti %s: %v\n", version.Version, err); writeErr != nil {
-				return errors.Join(err, writeErr)
+		if runErr != nil || results.Failed > 0 {
+			failure := runErr
+			if failure == nil {
+				failure = fmt.Errorf("%d of %d Lua unit tests failed", results.Failed, len(results.Tests))
 			}
-			if writeErr := writeWorkflowError(
-				suite.output,
-				fmt.Sprintf("Luanti %s startup test failed", version.Version),
-				err.Error(),
-			); writeErr != nil {
-				return errors.Join(err, writeErr)
+			failures = append(failures, fmt.Errorf("luanti %s: %w", version.Version, failure))
+			if runErr != nil {
+				if err := writeTestOutput(suite.output, "FAIL  Luanti %s: %v\n", version.Version, runErr); err != nil {
+					return errors.Join(failure, err)
+				}
+			} else {
+				if err := writeTestOutput(suite.output, "FAIL  Luanti %s\n", version.Version); err != nil {
+					return errors.Join(failure, err)
+				}
 			}
-			failures = append(failures, fmt.Errorf("luanti %s: %w", version.Version, err))
 			continue
 		}
 		if err := writeTestOutput(suite.output, "PASS  Luanti %s\n", version.Version); err != nil {
@@ -101,23 +98,37 @@ func (suite *Suite) Run(ctx context.Context) error {
 		}
 	}
 
-	if len(failures) > 0 {
-		return fmt.Errorf("%d of %d completed server startup tests failed:\n%w", len(failures), completed, errors.Join(failures...))
+	if len(failures) > 0 || ctx.Err() != nil {
+		message := fmt.Sprintf("%d of %d completed server unit-test suites failed", len(failures), completed)
+		if ctx.Err() != nil {
+			message = "unit-test suite canceled; " + message
+		}
+		return &suiteFailure{message: message, cause: errors.Join(errors.Join(failures...), ctx.Err())}
 	}
-	return writeTestOutput(suite.output, "PASS  all %d server startup tests\n", completed)
+	return writeTestOutput(suite.output, "PASS  all %d server unit-test suites\n", completed)
 }
+
+// Details have already been printed in their version's output. Return a short
+// summary for Cobra while preserving causes for errors.Is/errors.As callers.
+type suiteFailure struct {
+	message string
+	cause   error
+}
+
+func (failure *suiteFailure) Error() string { return failure.message }
+func (failure *suiteFailure) Unwrap() error { return failure.cause }
 
 func (suite *Suite) runVersion(
 	ctx context.Context,
 	version luanti.ServerVersion,
 	logOutput io.Writer,
-) (resultErr error) {
+) (results suiteResults, resultErr error) {
 	spec := container.ContainerSpec{
 		Image:      suite.image,
 		Entrypoint: version.Entrypoint,
 		Arguments: []string{
-			"--config", "/etc/minetest/minetest.conf",
-			"--world", "/var/lib/minetest/worlds/startup-test",
+			"--config", "/etc/minetest/unittests.conf",
+			"--world", "/var/lib/minetest/worlds/unit-tests",
 			"--gameid", "voxelibre",
 			"--logfile", "/dev/null",
 		},
@@ -131,32 +142,34 @@ func (suite *Suite) runVersion(
 		},
 	}
 
-	startupContext, cancelStartup := context.WithCancel(ctx)
-	defer cancelStartup()
-	timeout := suite.after(startupTimeout)
+	runContext, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
 	timedOut := make(chan struct{})
+	timeout := suite.after(suiteTimeout)
 	go func() {
 		select {
 		case <-timeout:
 			close(timedOut)
-			cancelStartup()
-		case <-startupContext.Done():
+			cancelRun()
+		case <-runContext.Done():
+		}
+	}()
+	defer func() {
+		if channelClosed(timedOut) {
+			resultErr = errors.Join(fmt.Errorf("unit-test suite did not finish within %s", suiteTimeout), resultErr)
+		} else if ctx.Err() != nil {
+			resultErr = errors.Join(ctx.Err(), resultErr)
 		}
 	}()
 
-	containerID, err := suite.engine.Start(startupContext, spec)
+	containerID, err := suite.engine.Start(runContext, spec)
 	if err != nil {
-		if channelClosed(timedOut) {
-			return fmt.Errorf("server did not become ready within %s", startupTimeout)
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return fmt.Errorf("start container: %w", err)
+		return results, fmt.Errorf("start container: %w", err)
 	}
 
 	containerExited := false
 	defer func() {
+		cancelRun()
 		cleanupContext, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 		defer cancel()
 
@@ -172,68 +185,61 @@ func (suite *Suite) runVersion(
 		resultErr = errors.Join(resultErr, errors.Join(cleanupErrors...))
 	}()
 
-	var previousLogs []byte
+	presenter := &logPresenter{output: logOutput}
+	defer func() { resultErr = errors.Join(resultErr, presenter.flush()) }()
+	readLogs := func() error {
+		logs, err := suite.engine.ReadLogs(runContext, containerID)
+		if err != nil {
+			return fmt.Errorf("read container logs: %w", err)
+		}
+		if err := presenter.snapshot(logs); err != nil {
+			return fmt.Errorf("present container logs: %w", err)
+		}
+		return nil
+	}
 	for {
-		logs, logsErr := suite.engine.ReadLogs(startupContext, containerID)
-		if logsErr != nil {
-			if channelClosed(timedOut) {
-				return fmt.Errorf("server did not become ready within %s", startupTimeout)
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return fmt.Errorf("read container logs: %w", logsErr)
+		if err := runContext.Err(); err != nil {
+			return results, err
 		}
-		if err := writeNewLogs(logOutput, previousLogs, logs); err != nil {
-			return fmt.Errorf("write container logs: %w", err)
+		if err := readLogs(); err != nil {
+			return results, err
 		}
-		previousLogs = append(previousLogs[:0], logs...)
-		if channelClosed(timedOut) {
-			return fmt.Errorf("server did not become ready within %s", startupTimeout)
-		}
-		if bytes.Contains(logs, []byte(readinessText)) {
-			return nil
-		}
-
-		running, stateErr := suite.engine.IsRunning(startupContext, containerID)
-		if stateErr != nil {
-			if channelClosed(timedOut) {
-				return fmt.Errorf("server did not become ready within %s", startupTimeout)
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return fmt.Errorf("inspect container state: %w", stateErr)
+		running, err := suite.engine.IsRunning(runContext, containerID)
+		if err != nil {
+			return results, fmt.Errorf("inspect container state: %w", err)
 		}
 		if !running {
-			exitCode, waitErr := suite.engine.Wait(startupContext, containerID)
-			containerExited = waitErr == nil
-			if waitErr != nil {
-				return fmt.Errorf("wait for container: %w", waitErr)
+			exitCode, err := suite.engine.Wait(runContext, containerID)
+			if err != nil {
+				return results, fmt.Errorf("wait for container: %w", err)
 			}
-			return fmt.Errorf("container exited with status %d before becoming ready", exitCode)
+			containerExited = true
+			// The server may have emitted its final records since the last poll.
+			logsErr := readLogs()
+			var exitErr error
+			if exitCode != 0 {
+				exitErr = fmt.Errorf("container exited with status %d", exitCode)
+			}
+			if logsErr != nil {
+				return results, errors.Join(exitErr, logsErr)
+			}
+			if err := presenter.flush(); err != nil {
+				return results, errors.Join(exitErr, err)
+			}
+			var parseErr error
+			results, parseErr = presenter.results()
+			return results, errors.Join(exitErr, parseErr)
 		}
-
 		select {
-		case <-timedOut:
-			return fmt.Errorf("server did not become ready within %s", startupTimeout)
 		case <-suite.pollAfter(pollInterval):
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-runContext.Done():
+			return results, runContext.Err()
 		}
 	}
 }
 
 func startWorkflowLogGroup(output io.Writer, title string) (*workflowcmd.Group, error) {
 	return workflowcmd.StartGroup(output, title)
-}
-
-func writeWorkflowError(output io.Writer, title, message string) error {
-	return workflowcmd.WriteAnnotation(output, workflowcmd.Annotation{
-		Level:   workflowcmd.LevelError,
-		Title:   title,
-		Message: message,
-	})
 }
 
 func writeTestOutput(output io.Writer, format string, arguments ...any) error {
@@ -250,16 +256,4 @@ func channelClosed(channel <-chan struct{}) bool {
 	default:
 		return false
 	}
-}
-
-func writeNewLogs(output io.Writer, previous, current []byte) error {
-	newLogs := current
-	if bytes.HasPrefix(current, previous) {
-		newLogs = current[len(previous):]
-	}
-	if len(newLogs) == 0 {
-		return nil
-	}
-	_, err := output.Write(newLogs)
-	return err
 }

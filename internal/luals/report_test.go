@@ -15,7 +15,11 @@ func TestParseReportReadsLuaLSDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close fixture: %v", err)
+		}
+	})
 
 	diagnostics, err := ParseReport(file)
 	if err != nil {
@@ -50,7 +54,11 @@ func TestParseReportAcceptsEmptyObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close fixture: %v", err)
+		}
+	})
 	diagnostics, err := ParseReport(file)
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +82,11 @@ func TestParseReportRejectsMalformedFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close fixture: %v", err)
+		}
+	})
 	if _, err := ParseReport(file); err == nil || !strings.Contains(err.Error(), "range end precedes") {
 		t.Fatalf("error = %v, want invalid range", err)
 	}

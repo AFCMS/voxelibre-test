@@ -57,22 +57,21 @@ func (engine *fakeEngine) ReadLogs(ctx context.Context, id string) ([]byte, erro
 	if engine.logsHook != nil {
 		return engine.logsHook(ctx, id)
 	}
-	return []byte("Server for gameid=\"voxelibre\" listening on [::]:30000.\n"), nil
+	return []byte(passingLogs), nil
 }
 
 func (engine *fakeEngine) IsRunning(ctx context.Context, id string) (bool, error) {
 	if engine.runningHook != nil {
 		return engine.runningHook(ctx, id)
 	}
-	return true, nil
+	return false, nil
 }
 
 func (engine *fakeEngine) Wait(ctx context.Context, id string) (int, error) {
 	if engine.waitHook != nil {
 		return engine.waitHook(ctx, id)
 	}
-	<-ctx.Done()
-	return 0, ctx.Err()
+	return 0, nil
 }
 
 func (engine *fakeEngine) Stop(_ context.Context, id string, _ time.Duration) error {
@@ -101,7 +100,7 @@ func TestSuiteStartsEverySupportedVersion(t *testing.T) {
 	if engine.ensureCalls != 1 {
 		t.Fatalf("EnsureImage calls = %d, want 1", engine.ensureCalls)
 	}
-	if len(engine.startSpecs) != wantTests || len(engine.stopIDs) != wantTests || len(engine.removeIDs) != wantTests {
+	if len(engine.startSpecs) != wantTests || len(engine.stopIDs) != 0 || len(engine.removeIDs) != wantTests {
 		t.Fatalf("lifecycle counts: starts=%d stops=%d removes=%d", len(engine.startSpecs), len(engine.stopIDs), len(engine.removeIDs))
 	}
 	for _, spec := range engine.startSpecs {
@@ -115,13 +114,13 @@ func TestSuiteStartsEverySupportedVersion(t *testing.T) {
 			t.Fatalf("bind mounts = %#v", spec.BindMounts)
 		}
 		arguments := strings.Join(spec.Arguments, " ")
-		for _, expected := range []string{"--gameid voxelibre", "--logfile /dev/null", "--world /var/lib/minetest/worlds/startup-test"} {
+		for _, expected := range []string{"--config /etc/minetest/unittests.conf", "--gameid voxelibre", "--logfile /dev/null", "--world /var/lib/minetest/worlds/unit-tests"} {
 			if !strings.Contains(arguments, expected) {
 				t.Fatalf("arguments %q do not contain %q", arguments, expected)
 			}
 		}
 	}
-	if !strings.Contains(output.String(), fmt.Sprintf("PASS  all %d server startup tests", wantTests)) {
+	if !strings.Contains(output.String(), fmt.Sprintf("PASS  all %d server unit-test suites", wantTests)) {
 		t.Fatalf("output = %q", output.String())
 	}
 	if count := strings.Count(output.String(), "::group::Luanti "); count != wantTests {
@@ -148,7 +147,7 @@ func TestSuiteFailsOnEarlyExitWithoutStoppingExitedContainer(t *testing.T) {
 	suite.versions = suite.versions[:1]
 
 	err := suite.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "exited with status 42") {
+	if err == nil || !strings.Contains(failureDetails(err), "exited with status 42") {
 		t.Fatalf("got %v, want early-exit error", err)
 	}
 	if len(engine.stopIDs) != 0 || len(engine.removeIDs) != 1 {
@@ -156,15 +155,15 @@ func TestSuiteFailsOnEarlyExitWithoutStoppingExitedContainer(t *testing.T) {
 	}
 }
 
-func TestSuiteUsesHardcodedStartupTimeout(t *testing.T) {
+func TestSuiteUsesHardcodedSuiteTimeout(t *testing.T) {
 	engine := &fakeEngine{
-		logsHook: func(context.Context, string) ([]byte, error) { return nil, nil },
+		logsHook: func(ctx context.Context, _ string) ([]byte, error) { <-ctx.Done(); return nil, ctx.Err() },
 	}
 	suite := NewSuite(engine, "image", container.PullMissing, "/clone", io.Discard)
 	suite.versions = suite.versions[:1]
 	suite.after = func(duration time.Duration) <-chan time.Time {
-		if duration != 15*time.Second {
-			t.Fatalf("timeout = %s, want 15s", duration)
+		if duration != 60*time.Second {
+			t.Fatalf("timeout = %s, want 60s", duration)
 		}
 		channel := make(chan time.Time, 1)
 		channel <- time.Now()
@@ -172,7 +171,7 @@ func TestSuiteUsesHardcodedStartupTimeout(t *testing.T) {
 	}
 
 	err := suite.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "within 15s") {
+	if err == nil || !strings.Contains(failureDetails(err), "within 1m0s") {
 		t.Fatalf("got %v, want timeout error", err)
 	}
 	if len(engine.stopIDs) != 1 || len(engine.removeIDs) != 1 {
@@ -180,7 +179,7 @@ func TestSuiteUsesHardcodedStartupTimeout(t *testing.T) {
 	}
 }
 
-func TestSuiteStartupTimeoutIncludesContainerStart(t *testing.T) {
+func TestSuiteTimeoutIncludesContainerStart(t *testing.T) {
 	engine := &fakeEngine{
 		startHook: func(ctx context.Context, _ container.ContainerSpec, _ int) (string, error) {
 			<-ctx.Done()
@@ -190,8 +189,8 @@ func TestSuiteStartupTimeoutIncludesContainerStart(t *testing.T) {
 	suite := NewSuite(engine, "image", container.PullMissing, "/clone", io.Discard)
 	suite.versions = suite.versions[:1]
 	suite.after = func(duration time.Duration) <-chan time.Time {
-		if duration != 15*time.Second {
-			t.Fatalf("timeout = %s, want 15s", duration)
+		if duration != 60*time.Second {
+			t.Fatalf("timeout = %s, want 60s", duration)
 		}
 		channel := make(chan time.Time, 1)
 		channel <- time.Now()
@@ -199,7 +198,7 @@ func TestSuiteStartupTimeoutIncludesContainerStart(t *testing.T) {
 	}
 
 	err := suite.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "within 15s") {
+	if err == nil || !strings.Contains(failureDetails(err), "within 1m0s") {
 		t.Fatalf("got %v, want timeout error", err)
 	}
 	if len(engine.stopIDs) != 0 || len(engine.removeIDs) != 0 {
@@ -221,15 +220,15 @@ func TestSuiteContinuesAfterVersionFailure(t *testing.T) {
 	wantTests := len(luanti.SupportedServerVersions())
 
 	err := suite.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("1 of %d completed server startup tests failed", wantTests)) {
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("1 of %d completed server unit-test suites failed", wantTests)) {
 		t.Fatalf("got %v, want aggregated failure", err)
 	}
 	if len(engine.startSpecs) != wantTests {
 		t.Fatalf("started %d versions, want %d", len(engine.startSpecs), wantTests)
 	}
-	annotation := "::error title=Luanti 5.15.2 startup test failed::start container: start failed\n"
+	annotation := "FAIL  Luanti 5.15.2: start container: start failed\n"
 	if count := strings.Count(output.String(), annotation); count != 1 {
-		t.Fatalf("failure annotations = %d, want 1; output = %q", count, output.String())
+		t.Fatalf("failure messages = %d, want 1; output = %q", count, output.String())
 	}
 	if count := strings.Count(output.String(), "::endgroup::"); count != wantTests {
 		t.Fatalf("log group ends = %d, want %d; output = %q", count, wantTests, output.String())
@@ -239,7 +238,7 @@ func TestSuiteContinuesAfterVersionFailure(t *testing.T) {
 func TestWorkflowLogGroupClosesOnNewLine(t *testing.T) {
 	engine := &fakeEngine{
 		logsHook: func(context.Context, string) ([]byte, error) {
-			return []byte(readinessText), nil
+			return []byte(passingLogs + "shutdown"), nil
 		},
 	}
 	output := &lockedBuffer{}
@@ -249,20 +248,8 @@ func TestWorkflowLogGroupClosesOnNewLine(t *testing.T) {
 	if err := suite.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), readinessText+"\n::endgroup::\n") {
+	if !strings.Contains(output.String(), "shutdown\n::endgroup::\n") {
 		t.Fatalf("endgroup marker is not on its own line: %q", output.String())
-	}
-}
-
-func TestWorkflowErrorEscapesCommandValues(t *testing.T) {
-	var output bytes.Buffer
-	if err := writeWorkflowError(&output, "Luanti: 5.16.1, client", "failed 100%\r\nretry"); err != nil {
-		t.Fatal(err)
-	}
-
-	want := "::error title=Luanti%3A 5.16.1%2C client::failed 100%25%0D%0Aretry\n"
-	if output.String() != want {
-		t.Fatalf("workflow error = %q, want %q", output.String(), want)
 	}
 }
 
@@ -277,20 +264,20 @@ func TestSuiteReportsLogAndCleanupFailures(t *testing.T) {
 	suite.versions = suite.versions[:1]
 
 	err := suite.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "logs unavailable") || !strings.Contains(err.Error(), "remove failed") {
+	if err == nil || !strings.Contains(failureDetails(err), "logs unavailable") || !strings.Contains(failureDetails(err), "remove failed") {
 		t.Fatalf("got %v, want log and cleanup errors", err)
 	}
 }
 
-func TestSuiteFindsReadinessAcrossLogSnapshots(t *testing.T) {
+func TestSuiteReadsFinalResultsAfterExit(t *testing.T) {
 	call := 0
 	engine := &fakeEngine{
 		logsHook: func(context.Context, string) ([]byte, error) {
 			call++
 			if call == 1 {
-				return []byte("Server for gameid=\"voxe"), nil
+				return []byte(passingLogs[:30]), nil
 			}
-			return []byte("Server for gameid=\"voxelibre\" listening on [::]:30000.\n"), nil
+			return []byte(passingLogs), nil
 		},
 	}
 	suite := NewSuite(engine, "image", container.PullMissing, "/clone", io.Discard)
@@ -339,4 +326,144 @@ func (buffer *lockedBuffer) String() string {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
 	return buffer.buffer.String()
+}
+
+func TestSuiteReportsFailuresOnceWithoutAnnotations(t *testing.T) {
+	logs := strings.Replace(passingTest, `"status":"pass"`, `"status":"fail","traceback":"failed 100%\ntrace"`, 1) +
+		strings.NewReplacer(`"passed":1`, `"passed":0`, `"failed":0`, `"failed":1`).Replace(passingSummary)
+	engine := &fakeEngine{logsHook: func(context.Context, string) ([]byte, error) { return []byte(logs), nil }}
+	var output bytes.Buffer
+	suite := NewSuite(engine, "image", container.PullNever, "/clone", &output)
+	err := suite.Run(context.Background())
+	if err == nil || !strings.Contains(failureDetails(err), "1 of 1 Lua unit tests failed") {
+		t.Fatalf("expected assertion failure, got %v", err)
+	}
+	if len(engine.startSpecs) != len(suite.versions) {
+		t.Fatal("did not continue across versions")
+	}
+	if count := strings.Count(output.String(), "failed 100%\n        trace\n"); count != len(suite.versions) {
+		t.Fatalf("failure details printed %d times, want once per version: %s", count, &output)
+	}
+	for _, unwanted := range []string{"::error", "::warning", "%0A", "%25", resultPrefix} {
+		if strings.Contains(output.String(), unwanted) {
+			t.Fatalf("unexpected %q in output: %s", unwanted, &output)
+		}
+	}
+	if strings.Contains(err.Error(), "\n") || strings.Contains(err.Error(), "Lua unit tests") {
+		t.Fatalf("final error repeats failure details: %v", err)
+	}
+}
+
+func TestSuiteDoesNotPassBeforeServerExits(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := &fakeEngine{runningHook: func(context.Context, string) (bool, error) { cancel(); return true, nil }}
+	suite := NewSuite(engine, "image", container.PullNever, "/clone", io.Discard)
+	err := suite.Run(ctx)
+	if !errors.Is(err, context.Canceled) || len(engine.stopIDs) != 1 || len(engine.removeIDs) != 1 {
+		t.Fatalf("err=%v stops=%v removes=%v", err, engine.stopIDs, engine.removeIDs)
+	}
+}
+
+func TestSuiteRejectsNonzeroExitEvenWithPassingSummary(t *testing.T) {
+	engine := &fakeEngine{waitHook: func(context.Context, string) (int, error) { return 1, nil }}
+	suite := NewSuite(engine, "image", container.PullNever, "/clone", io.Discard)
+	suite.versions = suite.versions[:1]
+	if err := suite.Run(context.Background()); err == nil || !strings.Contains(failureDetails(err), "status 1") {
+		t.Fatalf("expected failed exit, got %v", err)
+	}
+}
+
+func TestSuiteReportsInfrastructureFailures(t *testing.T) {
+	for _, operation := range []string{"ensure", "inspect", "wait", "final logs", "stop", "remove"} {
+		t.Run(operation, func(t *testing.T) {
+			failure := errors.New(operation + " failed")
+			engine := &fakeEngine{}
+			switch operation {
+			case "ensure":
+				engine.ensureErr = failure
+			case "inspect":
+				engine.runningHook = func(context.Context, string) (bool, error) { return false, failure }
+			case "wait":
+				engine.waitHook = func(context.Context, string) (int, error) { return 0, failure }
+			case "final logs":
+				calls := 0
+				engine.logsHook = func(context.Context, string) ([]byte, error) {
+					calls++
+					if calls == 2 {
+						return nil, failure
+					}
+					return []byte(passingLogs), nil
+				}
+			case "stop":
+				engine.logsHook = func(context.Context, string) ([]byte, error) { return nil, errors.New("read failed") }
+				engine.stopErr = failure
+			case "remove":
+				engine.removeErr = failure
+			}
+			suite := NewSuite(engine, "image", container.PullNever, "/clone", io.Discard)
+			suite.versions = suite.versions[:1]
+			if err := suite.Run(context.Background()); !errors.Is(err, failure) {
+				t.Fatalf("expected %v, got %v", failure, err)
+			}
+			if operation != "ensure" && len(engine.removeIDs) != 1 {
+				t.Fatal("container not removed")
+			}
+		})
+	}
+}
+
+// The CLI prints only the compact Error message; detailed causes remain available.
+func failureDetails(err error) string {
+	if cause := errors.Unwrap(err); cause != nil {
+		return cause.Error()
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func TestSuiteFlushesPartialEngineLogOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := &fakeEngine{
+		logsHook:    func(context.Context, string) ([]byte, error) { return []byte("ERROR: final engine diagnostic"), nil },
+		runningHook: func(context.Context, string) (bool, error) { cancel(); return true, nil },
+	}
+	var output bytes.Buffer
+	suite := NewSuite(engine, "image", container.PullNever, "/clone", &output)
+	err := suite.Run(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+	if !strings.Contains(output.String(), "ERROR: final engine diagnostic\n::endgroup::") {
+		t.Fatalf("lost final engine log: %s", &output)
+	}
+	if strings.Contains(err.Error(), "2 of 1") {
+		t.Fatalf("cancellation counted as an extra failed version: %v", err)
+	}
+	if len(engine.stopIDs) != 1 || len(engine.removeIDs) != 1 {
+		t.Fatal("canceled container not cleaned up")
+	}
+}
+
+type logWriteFailure struct{ calls int }
+
+func (writer *logWriteFailure) Write(data []byte) (int, error) {
+	writer.calls++
+	if writer.calls == 1 {
+		return len(data), nil
+	} // Allow the group header.
+	return 0, io.ErrClosedPipe
+}
+
+func TestSuiteCleansUpWhenOutputFails(t *testing.T) {
+	engine := &fakeEngine{}
+	suite := NewSuite(engine, "image", container.PullNever, "/clone", &logWriteFailure{})
+	err := suite.Run(context.Background())
+	if !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(engine.stopIDs) != 1 || len(engine.removeIDs) != 1 {
+		t.Fatal("container not cleaned up after output failure")
+	}
 }

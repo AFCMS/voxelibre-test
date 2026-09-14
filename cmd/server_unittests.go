@@ -15,7 +15,7 @@ import (
 // unittestsCmd represents the unittests command.
 var unittestsCmd = &cobra.Command{
 	Use:   "unittests",
-	Short: "Assert VoxeLibre starts on every supported Luanti server",
+	Short: "Run VoxeLibre Lua unit tests on every supported Luanti server",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		settings, err := appconfig.ReadServer(configuration)

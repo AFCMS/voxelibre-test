@@ -14,8 +14,8 @@ It consists of:
   - [x] Client builds
   - [x] Tools (LuaLS, etc)
 - [ ] CLI
-  - [x] Automated Docker server startup test with GitHub Actions compatible annotations
-    - [ ] Unittests?
+  - [x] Automated Lua unit tests across Luanti servers
+    - [x] Synchronous mod-owned unit tests
     - [ ] Test client connection?
   - [x] Client standalone builds extraction
   - [ ] Client automated startup
@@ -91,13 +91,15 @@ checkouts containing additional nested mounts are rejected with an explanation.
 
 ## Typical use
 
-### Test server startup
+### Run VoxeLibre unit tests
 
-Test every supported Luanti server against the configured VoxeLibre checkout:
+Run mod-owned Lua tests against every supported Luanti server:
 
 ```shell
 vltest server unittests
 ```
+
+The command run servers sequentially, enabling `vl_unittests_enabled`, then collects the unittests results. JSON results are transformed into a human-readable summary by the CLI.
 
 ### Lint VoxeLibre with LuaLS
 
@@ -168,6 +170,12 @@ npx skills update
 
 ## Docker images
 
+The separate `Docker vltest` Forgejo workflow builds the `vltest` image for
+pull requests to `master`, pushes to `master`, tags, and manual dispatches.
+Only pushes to `master` and tags publish to
+`git.minetest.land/voxelibre/voxelibre-test/vltest`, using the branch or tag name
+as the image tag.
+
 Manually dispatch the `Docker Images` Forgejo workflow to publish:
 
 - `git.minetest.land/voxelibre/voxelibre-test/luanti-client`
@@ -196,12 +204,13 @@ docker buildx bake --load \
   tools
 ```
 
-Add the generated `vltest` binary to your `PATH`, then create `vltest.json`:
+Add the generated `vltest` binary to your `PATH`, then create `vltest.json`
+in your VoxeLibre checkout:
 
 ```json
 {
   "voxelibre": {
-    "clone_dir": "./VoxeLibre"
+    "clone_dir": "."
   },
   "container": {
     "engine": "docker",

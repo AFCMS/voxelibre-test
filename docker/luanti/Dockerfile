@@ -361,4 +361,6 @@ COPY --from=luanti-5.14.0-server /work/dist/luanti-5.14.0-server /work/dist/luan
 
 COPY --from=luanti-5.17.0-server /work/dist/luanti-5.17.0-server/minetest.conf.example /etc/minetest/minetest.conf
 
+COPY docker/luanti/unittests.conf /etc/minetest/unittests.conf
+
 EXPOSE 30000/udp 30000/tcp
