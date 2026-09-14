@@ -18,19 +18,14 @@ It consists of:
     - [x] Synchronous mod-owned unit tests
     - [ ] Test client connection?
   - [x] Client standalone builds extraction
-  - [ ] Client automated startup
-    - [x] Native (extraction to temp file system)
-    - [ ] Docker + VNC + Web UI
-    - [ ] Docker + native Wayland socket
-    - [ ] Docker + native X11 socket
-    - [ ] Docker GPU acceleration
+  - [x] Native client startup (extraction to temp file system)
   - [x] Linting automation (CI + local)
     - [x] LuaLS
   - [x] Config file system
-- [ ] Distribution
+- [x] Distribution
   - [x] Docker CI
-  - [ ] CLI CI
-- [ ] User + Agent documentation
+  - [x] CLI CI
+- [x] User + Agent documentation
 
 ## System requirements
 
@@ -230,3 +225,21 @@ in your VoxeLibre checkout:
   }
 }
 ```
+
+## Maintenance
+
+### Add a Luanti version
+
+1. In [`docker/luanti/Dockerfile`](docker/luanti/Dockerfile), duplicate an existing
+   version's source, client, and server stages. Update the version references and
+   add both builds to the final images' `COPY` instructions.
+2. Add the version to [`internal/luanti/versions.go`](internal/luanti/versions.go)
+   and update its tests and the supported-version list above.
+3. Run `gofmt`, `go test ./...`, `go test -race ./...`, `go vet ./...`, and
+   `git diff --check`.
+4. [Rebuild the CLI and both images](#build-locally). Run server unit tests,
+   extract the new builds, and launch the new native client using those images.
+5. After merging, manually dispatch **Docker Images** in Forgejo Actions on
+   `master` to publish the updated Luanti images (no inputs required). The
+   **Docker vltest** workflow publishes the CLI image automatically on pushes
+   to `master` or tags; manually dispatching it only builds the image.
