@@ -18,3 +18,5 @@ ENV LUALS_CHECKSUM=sha256:e9235d2d72ef55bc41cf8c99cda2ed64777682024b4bb81f5dea42
 ADD --unpack=true \
     --checksum=${LUALS_CHECKSUM} \
     https://github.com/LuaLS/lua-language-server/releases/download/${LUALS_VERSION}/lua-language-server-${LUALS_VERSION}-linux-x64.tar.gz /opt/LuaLS
+
+ADD https://git.minetest.land/andro/luanti-api.git?branch=main /usr/share/luanti/luanti-lls-definitions/library
