@@ -138,17 +138,29 @@ func TestSuiteStartsEverySupportedVersion(t *testing.T) {
 }
 
 func TestSuiteFailsOnEarlyExitWithoutStoppingExitedContainer(t *testing.T) {
+	const startupError = "ERROR[Main]: ModError: end_city.lua:135: attempt to index global 'fringe_bounds' (a nil value)\n"
 	engine := &fakeEngine{
-		logsHook:    func(context.Context, string) ([]byte, error) { return nil, nil },
+		logsHook:    func(context.Context, string) ([]byte, error) { return []byte(startupError), nil },
 		runningHook: func(context.Context, string) (bool, error) { return false, nil },
 		waitHook:    func(context.Context, string) (int, error) { return 42, nil },
 	}
-	suite := NewSuite(engine, "image", container.PullMissing, "/clone", io.Discard)
+	var output bytes.Buffer
+	suite := NewSuite(engine, "image", container.PullMissing, "/clone", &output)
 	suite.versions = suite.versions[:1]
 
 	err := suite.Run(context.Background())
 	if err == nil || !strings.Contains(failureDetails(err), "exited with status 42") {
 		t.Fatalf("got %v, want early-exit error", err)
+	}
+	if strings.Count(output.String(), startupError) != 1 {
+		t.Fatalf("startup error should appear once: %s", &output)
+	}
+	if !strings.Contains(output.String(), "missing unit-test summary") ||
+		!strings.Contains(output.String(), "check the server logs above") {
+		t.Fatalf("missing completion diagnostic: %s", &output)
+	}
+	if strings.Contains(output.String(), "checkout must provide") {
+		t.Fatalf("startup failure blamed on missing framework: %s", &output)
 	}
 	if len(engine.stopIDs) != 0 || len(engine.removeIDs) != 1 {
 		t.Fatalf("cleanup: stops=%d removes=%d", len(engine.stopIDs), len(engine.removeIDs))

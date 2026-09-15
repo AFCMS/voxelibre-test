@@ -89,7 +89,7 @@ func (parser *resultParser) consume(line string) (*testResult, error) {
 
 func (parser *resultParser) finish() error {
 	if !parser.summarySeen {
-		return fmt.Errorf("missing unit-test summary: checkout must provide enabled vl_unittests emitting [vl_unittests] JSON records")
+		return fmt.Errorf("missing unit-test summary: the suite did not report completion; check the server logs above")
 	}
 	if len(parser.results.Tests) == 0 {
 		return fmt.Errorf("unit-test suite is empty")
