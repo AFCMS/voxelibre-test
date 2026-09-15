@@ -336,3 +336,63 @@ func assertEqual(t *testing.T, name, actual, expected string) {
 		t.Fatalf("%s: got %q, want %q", name, actual, expected)
 	}
 }
+
+func TestLintDisplayConfiguration(t *testing.T) {
+	cloneDirectory := makeGame(t, t.TempDir(), "game")
+	for _, tc := range []struct {
+		key, flag, environment, property, defaultValue, fileValue, envValue, flagValue string
+		values                                                                         []string
+	}{
+		{KeyLintOutputFormat, FlagOutputFormat, "VLTEST_LINT_OUTPUT_FORMAT", "output_format", DefaultLintOutputFormat, "github", "human", " GITHUB ", []string{"human", "github"}},
+		{KeyLintColor, FlagColor, "VLTEST_LINT_COLOR", "color", DefaultLintColor, "never", "always", " AUTO ", []string{"auto", "always", "never"}},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			t.Setenv(tc.environment, "")
+			v := viper.New()
+			Configure(v)
+			v.Set(KeyVoxeLibreCloneDir, cloneDirectory)
+			flags := pflag.NewFlagSet("lint", pflag.ContinueOnError)
+			if err := AddLintFlags(v, flags); err != nil {
+				t.Fatal(err)
+			}
+			check := func(want string) {
+				t.Helper()
+				settings, err := ReadLint(v)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := settings.OutputFormat
+				if tc.key == KeyLintColor {
+					got = settings.Color
+				}
+				assertEqual(t, tc.key, got, want)
+			}
+			check(tc.defaultValue)
+			v.SetConfigType("json")
+			if err := v.ReadConfig(strings.NewReader(`{"lint":{"` + tc.property + `":"` + tc.fileValue + `"}}`)); err != nil {
+				t.Fatal(err)
+			}
+			check(tc.fileValue)
+			t.Setenv(tc.environment, tc.envValue)
+			check(tc.envValue)
+			if err := flags.Parse([]string{"--" + tc.flag, tc.flagValue}); err != nil {
+				t.Fatal(err)
+			}
+			check(strings.ToLower(strings.TrimSpace(tc.flagValue)))
+			for _, value := range tc.values {
+				v.Set(tc.key, value)
+				check(value)
+			}
+			for _, invalid := range []string{"", "invalid"} {
+				v.Set(tc.key, invalid)
+				if _, err := ReadLint(v); err == nil {
+					t.Fatalf("accepted %q", invalid)
+				}
+			}
+			property := readConfigurationSchema(t).Properties["lint"].Properties[tc.property]
+			if property.Type != "string" || property.Default != tc.defaultValue || strings.Join(property.Enum, ",") != strings.Join(tc.values, ",") {
+				t.Fatalf("schema = %#v", property)
+			}
+		})
+	}
+}

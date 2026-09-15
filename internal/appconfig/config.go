@@ -25,6 +25,8 @@ const (
 	KeyClientDataDir        = "client.data_dir"
 	KeyExtractOutputDir     = "extract_builds.output_dir"
 	KeyLintCheckLevel       = "lint.check_level"
+	KeyLintOutputFormat     = "lint.output_format"
+	KeyLintColor            = "lint.color"
 
 	DefaultVoxeLibreCloneDir    = "."
 	DefaultContainerEngine      = "auto"
@@ -36,6 +38,8 @@ const (
 	DefaultClientDataDir        = ""
 	DefaultExtractOutputDir     = "./builds"
 	DefaultLintCheckLevel       = "warning"
+	DefaultLintOutputFormat     = "human"
+	DefaultLintColor            = "auto"
 )
 
 const (
@@ -49,6 +53,8 @@ const (
 	FlagClientDataDir      = "data-dir"
 	FlagOutputDir          = "output-dir"
 	FlagCheckLevel         = "check-level"
+	FlagOutputFormat       = "output-format"
+	FlagColor              = "color"
 	defaultConfigFile      = "vltest.json"
 )
 
@@ -80,6 +86,8 @@ type LintSettings struct {
 	Container         ContainerSettings
 	Image             string
 	CheckLevel        string
+	OutputFormat      string
+	Color             string
 }
 
 func Configure(v *viper.Viper) {
@@ -93,6 +101,8 @@ func Configure(v *viper.Viper) {
 	v.SetDefault(KeyClientDataDir, DefaultClientDataDir)
 	v.SetDefault(KeyExtractOutputDir, DefaultExtractOutputDir)
 	v.SetDefault(KeyLintCheckLevel, DefaultLintCheckLevel)
+	v.SetDefault(KeyLintOutputFormat, DefaultLintOutputFormat)
+	v.SetDefault(KeyLintColor, DefaultLintColor)
 
 	v.SetEnvPrefix("VLTEST")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
@@ -140,8 +150,16 @@ func AddLintFlags(v *viper.Viper, flags *pflag.FlagSet) error {
 		DefaultLintCheckLevel,
 		"minimum LuaLS diagnostic level (error, warning, information, or hint)",
 	)
-	if err := v.BindPFlag(KeyLintCheckLevel, flags.Lookup(FlagCheckLevel)); err != nil {
-		return fmt.Errorf("bind --%s to %s: %w", FlagCheckLevel, KeyLintCheckLevel, err)
+	flags.String(FlagOutputFormat, DefaultLintOutputFormat, "lint display backend (human or github)")
+	flags.String(FlagColor, DefaultLintColor, "human output colors (auto, always, or never)")
+	for key, flagName := range map[string]string{
+		KeyLintCheckLevel:   FlagCheckLevel,
+		KeyLintOutputFormat: FlagOutputFormat,
+		KeyLintColor:        FlagColor,
+	} {
+		if err := v.BindPFlag(key, flags.Lookup(flagName)); err != nil {
+			return fmt.Errorf("bind --%s to %s: %w", flagName, key, err)
+		}
 	}
 	return nil
 }
@@ -269,11 +287,25 @@ func ReadLint(v *viper.Viper) (LintSettings, error) {
 			checkLevel,
 		)
 	}
+	outputFormat := strings.ToLower(strings.TrimSpace(v.GetString(KeyLintOutputFormat)))
+	switch outputFormat {
+	case "human", "github":
+	default:
+		return LintSettings{}, fmt.Errorf("unsupported lint output format %q: expected human or github", outputFormat)
+	}
+	color := strings.ToLower(strings.TrimSpace(v.GetString(KeyLintColor)))
+	switch color {
+	case "auto", "always", "never":
+	default:
+		return LintSettings{}, fmt.Errorf("unsupported color mode %q: expected auto, always, or never", color)
+	}
 	return LintSettings{
 		VoxeLibreCloneDir: cloneDirectory,
 		Container:         containerSettings,
 		Image:             image,
 		CheckLevel:        checkLevel,
+		OutputFormat:      outputFormat,
+		Color:             color,
 	}, nil
 }
 

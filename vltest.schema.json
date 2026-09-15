@@ -92,6 +92,18 @@
             "hint"
           ],
           "default": "warning"
+        },
+        "output_format": {
+          "description": "Lint display backend: readable text or GitHub Actions workflow commands.",
+          "type": "string",
+          "enum": ["human", "github"],
+          "default": "human"
+        },
+        "color": {
+          "description": "Colors for human lint output. Auto enables colors on terminals unless NO_COLOR is set or TERM is dumb.",
+          "type": "string",
+          "enum": ["auto", "always", "never"],
+          "default": "auto"
         }
       }
     },

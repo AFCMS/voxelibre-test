@@ -89,7 +89,7 @@ func TestRunnerRunsLuaLSAndAllowsWarnings(t *testing.T) {
 		container.PullNever,
 		"/workspace/VoxeLibre",
 		luals.CheckLevelWarning,
-		&output,
+		NewGitHubDisplay(&output),
 	)
 	runner.workingDirectory = func() (string, error) { return "/workspace", nil }
 
@@ -140,7 +140,7 @@ func TestRunnerFailsOnlyForErrorDiagnostics(t *testing.T) {
 }]}`,
 	}
 	var output bytes.Buffer
-	runner := NewRunner(runtime, "tools", container.PullMissing, "/workspace/VoxeLibre", luals.CheckLevelError, &output)
+	runner := NewRunner(runtime, "tools", container.PullMissing, "/workspace/VoxeLibre", luals.CheckLevelError, NewGitHubDisplay(&output))
 	runner.workingDirectory = func() (string, error) { return "/workspace", nil }
 
 	err := runner.Run(context.Background())
@@ -158,7 +158,7 @@ func TestRunnerFailsOnlyForErrorDiagnostics(t *testing.T) {
 func TestRunnerAcceptsEmptyReport(t *testing.T) {
 	runtime := &fakeRuntime{report: `{}`}
 	var output bytes.Buffer
-	runner := NewRunner(runtime, "tools", container.PullMissing, "/workspace/VoxeLibre", luals.CheckLevelWarning, &output)
+	runner := NewRunner(runtime, "tools", container.PullMissing, "/workspace/VoxeLibre", luals.CheckLevelWarning, NewGitHubDisplay(&output))
 	runner.workingDirectory = func() (string, error) { return "/workspace", nil }
 	if err := runner.Run(context.Background()); err != nil {
 		t.Fatal(err)

@@ -98,8 +98,7 @@ The command run servers sequentially, enabling `vl_unittests_enabled`, then coll
 
 ### Lint VoxeLibre with LuaLS
 
-Run LuaLS and emit GitHub Actions compatible annotations for errors and
-warnings:
+Run LuaLS with readable diagnostics, source excerpts, and a summary:
 
 ```shell
 vltest lint

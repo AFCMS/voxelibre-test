@@ -7,14 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
 
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/container"
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/luals"
-	"git.minetest.land/VoxeLibre/voxelibre-test/internal/workflowcmd"
 )
 
 const (
@@ -38,7 +36,7 @@ type Runner struct {
 	pullPolicy       container.PullPolicy
 	cloneDirectory   string
 	checkLevel       luals.CheckLevel
-	output           io.Writer
+	display          Display
 	workingDirectory func() (string, error)
 }
 
@@ -48,10 +46,10 @@ func NewRunner(
 	pullPolicy container.PullPolicy,
 	cloneDirectory string,
 	checkLevel luals.CheckLevel,
-	output io.Writer,
+	display Display,
 ) *Runner {
-	if output == nil {
-		output = io.Discard
+	if display == nil {
+		display = NewGitHubDisplay(nil)
 	}
 	return &Runner{
 		runtime:          runtime,
@@ -59,7 +57,7 @@ func NewRunner(
 		pullPolicy:       pullPolicy,
 		cloneDirectory:   cloneDirectory,
 		checkLevel:       checkLevel,
-		output:           output,
+		display:          display,
 		workingDirectory: os.Getwd,
 	}
 }
@@ -131,7 +129,7 @@ func (runner *Runner) Run(ctx context.Context) (resultErr error) {
 
 	workingDirectory, err := runner.workingDirectory()
 	if err != nil {
-		return fmt.Errorf("get working directory for LuaLS annotations: %w", err)
+		return fmt.Errorf("get working directory for LuaLS diagnostics: %w", err)
 	}
 	annotations, counts, err := ConvertDiagnostics(
 		diagnostics,
@@ -143,19 +141,12 @@ func (runner *Runner) Run(ctx context.Context) (resultErr error) {
 		return err
 	}
 	for _, annotation := range annotations {
-		if err := workflowcmd.WriteAnnotation(runner.output, annotation); err != nil {
+		if err := runner.display.WriteDiagnostic(annotation, workingDirectory); err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(
-		runner.output,
-		"LuaLS: %d errors, %d warnings, %d information, %d hints\n",
-		counts.Errors,
-		counts.Warnings,
-		counts.Information,
-		counts.Hints,
-	); err != nil {
-		return fmt.Errorf("write LuaLS summary: %w", err)
+	if err := runner.display.WriteSummary(counts); err != nil {
+		return err
 	}
 	if counts.Errors > 0 {
 		return fmt.Errorf("LuaLS reported %d error diagnostics", counts.Errors)
@@ -168,16 +159,5 @@ func (runner *Runner) writeLogs(ctx context.Context, containerID string) error {
 	if err != nil {
 		return fmt.Errorf("read LuaLS container logs: %w", err)
 	}
-	group, err := workflowcmd.StartGroup(runner.output, "LuaLS logs")
-	if err != nil {
-		return err
-	}
-	var writeErr error
-	if len(logs) > 0 {
-		_, writeErr = group.Write(logs)
-		if writeErr != nil {
-			writeErr = fmt.Errorf("write LuaLS container logs: %w", writeErr)
-		}
-	}
-	return errors.Join(writeErr, group.End())
+	return runner.display.WriteLogs(logs)
 }

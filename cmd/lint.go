@@ -30,6 +30,15 @@ var lintCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("validate LuaLS check level: %w", err)
 		}
+		var display lint.Display
+		if settings.OutputFormat == "github" {
+			display = lint.NewGitHubDisplay(cmd.OutOrStdout())
+		} else {
+			display, err = lint.NewHumanDisplay(cmd.OutOrStdout(), settings.Color)
+			if err != nil {
+				return err
+			}
+		}
 		engine, err := commandDependencies.newEngine(cmd.Context(), settings.Container)
 		if err != nil {
 			return err
@@ -41,7 +50,7 @@ var lintCmd = &cobra.Command{
 			pullPolicy,
 			settings.VoxeLibreCloneDir,
 			checkLevel,
-			cmd.OutOrStdout(),
+			display,
 		)
 		return runner.Run(cmd.Context())
 	},

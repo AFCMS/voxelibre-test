@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"git.minetest.land/VoxeLibre/voxelibre-test/internal/luals"
-	"git.minetest.land/VoxeLibre/voxelibre-test/internal/workflowcmd"
 )
 
 func TestConvertDiagnosticsMapsPathsSeveritiesAndRanges(t *testing.T) {
@@ -73,13 +72,13 @@ func TestConvertDiagnosticsMapsPathsSeveritiesAndRanges(t *testing.T) {
 	}
 	if annotations[0].File != "VoxeLibre/mods/a+b.lua" || annotations[0].Line != 2 ||
 		annotations[0].EndLine != 3 || annotations[0].Column != 3 || annotations[0].EndColumn != 5 ||
-		annotations[0].Level != workflowcmd.LevelError {
+		annotations[0].Severity != luals.SeverityError {
 		t.Fatalf("first annotation = %#v", annotations[0])
 	}
 
 	var output bytes.Buffer
 	for _, annotation := range annotations {
-		if err := workflowcmd.WriteAnnotation(&output, annotation); err != nil {
+		if err := NewGitHubDisplay(&output).WriteDiagnostic(annotation, "/workspace"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -225,72 +225,82 @@ func TestLintRejectsArguments(t *testing.T) {
 }
 
 func TestLintCommandUsesConfiguredToolsImageAndLevel(t *testing.T) {
-	temporaryDirectory := t.TempDir()
-	cloneDirectory := filepath.Join(temporaryDirectory, "VoxeLibre")
-	if err := os.Mkdir(cloneDirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cloneDirectory, "game.conf"), []byte("title = VoxeLibre\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(temporaryDirectory, "empty.json")
-	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	for _, format := range []string{"human", "github"} {
+		t.Run(format, func(t *testing.T) {
+			temporaryDirectory := t.TempDir()
+			cloneDirectory := filepath.Join(temporaryDirectory, "VoxeLibre")
+			if err := os.Mkdir(cloneDirectory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(cloneDirectory, "game.conf"), []byte("title = VoxeLibre\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			configPath := filepath.Join(temporaryDirectory, "empty.json")
+			if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 
-	engine := &readyEngine{
-		lintReport: `{"file:///path/to/voxelibre/init.lua":[{
+			engine := &readyEngine{
+				lintReport: `{"file:///path/to/voxelibre/init.lua":[{
   "code":"undefined-global","message":"Undefined global.","severity":2,
   "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}
 }]}`,
-		lintWaitCode: 1,
-	}
-	selectedEngine := ""
-	selectedWorkspace := ""
-	previousDependencies := commandDependencies
-	commandDependencies = dependencies{
-		newEngine: func(_ context.Context, settings appconfig.ContainerSettings) (container.Runtime, error) {
-			selectedEngine = settings.Engine
-			selectedWorkspace = settings.WorkspaceContainer
-			return engine, nil
-		},
-	}
-	t.Cleanup(func() {
-		commandDependencies = previousDependencies
-		rootCmd.SetArgs(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-	})
+				lintWaitCode: 1,
+			}
+			selectedEngine := ""
+			selectedWorkspace := ""
+			previousDependencies := commandDependencies
+			commandDependencies = dependencies{
+				newEngine: func(_ context.Context, settings appconfig.ContainerSettings) (container.Runtime, error) {
+					selectedEngine = settings.Engine
+					selectedWorkspace = settings.WorkspaceContainer
+					return engine, nil
+				},
+			}
+			t.Cleanup(func() {
+				commandDependencies = previousDependencies
+				rootCmd.SetArgs(nil)
+				rootCmd.SetOut(nil)
+				rootCmd.SetErr(nil)
+			})
 
-	var output bytes.Buffer
-	rootCmd.SetOut(&output)
-	rootCmd.SetErr(&output)
-	rootCmd.SetArgs([]string{
-		"--config", configPath,
-		"--voxelibre-dir", cloneDirectory,
-		"--container-engine", "podman",
-		"--workspace-container", "forgejo-job",
-		"--tools-image", "tools:local",
-		"--pull-policy", "never",
-		"lint", "--check-level", "information",
-	})
-	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if selectedWorkspace != "forgejo-job" {
-		t.Fatalf("workspace container = %q", selectedWorkspace)
-	}
-	if selectedEngine != "podman" {
-		t.Fatalf("selected engine = %q", selectedEngine)
-	}
-	if len(engine.ensureImages) != 1 || engine.ensureImages[0] != "tools:local" || engine.policy != container.PullNever {
-		t.Fatalf("image setup = %#v/%q", engine.ensureImages, engine.policy)
-	}
-	if len(engine.startSpecs) != 1 || !strings.Contains(strings.Join(engine.startSpecs[0].Arguments, " "), "--checklevel Information") {
-		t.Fatalf("start specs = %#v", engine.startSpecs)
-	}
-	if !strings.Contains(output.String(), "::warning ") || !strings.Contains(output.String(), "LuaLS: 0 errors, 1 warnings") {
-		t.Fatalf("output = %q", output.String())
+			var output bytes.Buffer
+			rootCmd.SetOut(&output)
+			rootCmd.SetErr(&output)
+			rootCmd.SetArgs([]string{
+				"--config", configPath,
+				"--voxelibre-dir", cloneDirectory,
+				"--container-engine", "podman",
+				"--workspace-container", "forgejo-job",
+				"--tools-image", "tools:local",
+				"--pull-policy", "never",
+				"lint", "--check-level", "information", "--output-format", format, "--color", "never",
+			})
+			if err := rootCmd.ExecuteContext(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if selectedWorkspace != "forgejo-job" {
+				t.Fatalf("workspace container = %q", selectedWorkspace)
+			}
+			if selectedEngine != "podman" {
+				t.Fatalf("selected engine = %q", selectedEngine)
+			}
+			if len(engine.ensureImages) != 1 || engine.ensureImages[0] != "tools:local" || engine.policy != container.PullNever {
+				t.Fatalf("image setup = %#v/%q", engine.ensureImages, engine.policy)
+			}
+			if len(engine.startSpecs) != 1 || !strings.Contains(strings.Join(engine.startSpecs[0].Arguments, " "), "--checklevel Information") {
+				t.Fatalf("start specs = %#v", engine.startSpecs)
+			}
+			wantDiagnostic := ":1:1 - warning [undefined-global]: Undefined global."
+			if format == "github" {
+				wantDiagnostic = "::warning "
+			} else if strings.Contains(output.String(), "::group::") || strings.Contains(output.String(), "::warning ") || strings.Contains(output.String(), "\x1b[") {
+				t.Fatalf("human output contains workflow commands or color: %q", output.String())
+			}
+			if !strings.Contains(output.String(), wantDiagnostic) || !strings.Contains(output.String(), "LuaLS: 0 errors, 1 warnings") {
+				t.Fatalf("output = %q", output.String())
+			}
+		})
 	}
 }
 
