@@ -89,7 +89,11 @@ func TestHumanDisplayAutoColorForRedirectedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	display, err := NewHumanDisplay(file, "auto")
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +147,7 @@ func TestDisplayLogsAndSummary(t *testing.T) {
 		for _, logs := range []string{"", "done", "done\n"} {
 			t.Run(format+"/"+logs, func(t *testing.T) {
 				var output bytes.Buffer
-				var display Display = NewGitHubDisplay(&output)
+				display := NewGitHubDisplay(&output)
 				want := "::group::LuaLS logs\n"
 				if format == "human" {
 					display, _ = NewHumanDisplay(&output, "never")
@@ -181,7 +185,7 @@ func TestDisplayWriteFailures(t *testing.T) {
 	for _, format := range []string{"human", "github"} {
 		t.Run(format, func(t *testing.T) {
 			writer := failingDisplayWriter{failure}
-			var display Display = NewGitHubDisplay(writer)
+			display := NewGitHubDisplay(writer)
 			if format == "human" {
 				display, _ = NewHumanDisplay(writer, "never")
 			}
